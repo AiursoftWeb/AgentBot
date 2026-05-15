@@ -185,7 +185,7 @@ kind: CronJob
 metadata:
   name: agent-bot
 spec:
-  schedule: "0,30 * * * *"
+  schedule: "*/5 * * * *"
   jobTemplate:
     spec:
       template:

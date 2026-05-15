@@ -68,8 +68,8 @@ tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env H
 echo "$(date): Started tmux session $SESSION_NAME, log: $LOG_FILE" >> "$LOG_DIR/launcher.log"\n\
 ' > /start.sh && chmod +x /start.sh
 
-# Schedule the bot to run every 30 minutes via cron. /start.sh handles logging via tmux internally.
-RUN echo "0,30 * * * * root /start.sh" > /etc/cron.d/agent-bot && \
+# Schedule the bot to run every 5 minutes via cron. /start.sh handles logging via tmux internally.
+RUN echo "*/5 * * * * root /start.sh" > /etc/cron.d/agent-bot && \
     chmod 0644 /etc/cron.d/agent-bot
 
 VOLUME /workspace /logs
