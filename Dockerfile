@@ -5,7 +5,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
-RUN useradd -m bot
+RUN useradd -m bot && \
+    echo "bot ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/bot
 
 # Install regctl for OCI registry interactions, with a fallback mirror in case of issues with GitHub.
 RUN (curl -m 50 -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o regctl || \
