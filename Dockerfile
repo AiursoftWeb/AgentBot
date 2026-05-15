@@ -27,7 +27,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 # Install Python dependencies and global npm packages, with a custom registry for npm to ensure reliability.
 RUN pip install PyYAML
 
-# Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and Gemini CLI.
+# Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
     npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @google/gemini-cli --loglevel verbose
 
@@ -38,7 +38,7 @@ COPY . .
 RUN dotnet build -maxcpucount:1 --configuration Release --no-self-contained *.sln && \
     dotnet pack -maxcpucount:1 --configuration Release *.sln || echo "Some packaging failed!"
 
-RUN dotnet tool install --global Aiursoft.GeminiBot --add-source /app/src/Aiursoft.GeminiBot/bin/Release/ && \
+RUN dotnet tool install --global Aiursoft.AgentBot --add-source /app/src/Aiursoft.AgentBot/bin/Release/ && \
     cp -r /root/.dotnet /home/bot/ && chown -R bot:bot /home/bot/.dotnet
 
 ENV PATH="/home/bot/.dotnet/tools:${PATH}"
@@ -46,20 +46,20 @@ ENV PATH="/home/bot/.dotnet/tools:${PATH}"
 # /start.sh — tmux-based launcher, same pattern as the ms.local server.
 # tmux session acts as both concurrency guard and attachable debug console.
 RUN printf '#!/bin/bash\n\
-SESSION_NAME="gemini-bot-session"\n\
+SESSION_NAME="agent-bot-session"\n\
 LOG_DIR="/logs"\n\
 LOG_FILE="$LOG_DIR/$(date +%%Y-%%m-%%d_%%H-%%M-%%S).log"\n\
 if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then\n\
   echo "$(date): Session $SESSION_NAME already exists. Skipping." >> "$LOG_DIR/cron-skipper.log"\n\
   exit 0\n\
 fi\n\
-tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot /home/bot/.dotnet/tools/gemini-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
+tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot /home/bot/.dotnet/tools/agent-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
 echo "$(date): Started tmux session $SESSION_NAME, log: $LOG_FILE" >> "$LOG_DIR/launcher.log"\n\
 ' > /start.sh && chmod +x /start.sh
 
 # Schedule the bot to run every 30 minutes via cron. /start.sh handles logging via tmux internally.
-RUN echo "0,30 * * * * root /start.sh" > /etc/cron.d/gemini-bot && \
-    chmod 0644 /etc/cron.d/gemini-bot
+RUN echo "0,30 * * * * root /start.sh" > /etc/cron.d/agent-bot && \
+    chmod 0644 /etc/cron.d/agent-bot
 
 VOLUME /workspace /logs
 
