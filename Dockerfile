@@ -19,20 +19,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       nodejs libgdiplus build-essential bc ffmpeg zip unzip tar gzip \
-      iputils-ping net-tools git jq sudo python3-pip shellcheck iproute2 \
-      dotnet10 tmux && \
+      iputils-ping net-tools git jq sudo python3-pip python3-venv python3-dev \
+      shellcheck iproute2 dotnet10 tmux ripgrep fd-find tree curl wget \
+      postgresql-client redis-tools sqlite3 libsqlite3-dev && \
     ln -sf /usr/bin/python3 /usr/local/bin/python && \
     ln -sf /usr/bin/pip3 /usr/local/bin/pip && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies and global npm packages, with a custom registry for npm to ensure reliability.
-RUN pip install PyYAML
+# Install Python dependencies commonly needed by AI coding tasks.
+RUN pip install PyYAML requests httpx rich python-dotenv
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
     npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @google/gemini-cli --loglevel verbose
 
-RUN mkdir -p /workspace /logs && chown bot:bot /workspace /logs
+RUN mkdir -p /workspace /logs && chown bot:bot /workspace /logs && \
+    printf 'export HOME=/home/bot\n\
+export DOTNET_CLI_HOME=/home/bot/.dotnet\n\
+export PATH="$HOME/.dotnet/tools:$PATH"\n\
+' > /home/bot/.bashrc && chown bot:bot /home/bot/.bashrc
 
 WORKDIR /app
 COPY . .
@@ -40,6 +45,11 @@ RUN dotnet build -maxcpucount:1 --configuration Release --no-self-contained *.sl
     dotnet pack -maxcpucount:1 --configuration Release *.sln || echo "Some packaging failed!"
 
 RUN dotnet tool install --global Aiursoft.AgentBot --add-source /app/src/Aiursoft.AgentBot/bin/Release/ && \
+    dotnet tool install --global dotnet-ef --add-source https://nuget.aiursoft.com/v3/index.json && \
+    dotnet tool install --global JetBrains.ReSharper.GlobalTools --add-source https://nuget.aiursoft.com/v3/index.json && \
+    dotnet tool install --global dotnet-reportgenerator-globaltool --add-source https://nuget.aiursoft.com/v3/index.json && \
+    dotnet tool install --global Aiursoft.Dotlang --add-source https://nuget.aiursoft.com/v3/index.json && \
+    dotnet tool install --global Aiursoft.NugetNinja --add-source https://nuget.aiursoft.com/v3/index.json && \
     cp -r /root/.dotnet /home/bot/ && chown -R bot:bot /home/bot/.dotnet
 
 ENV PATH="/home/bot/.dotnet/tools:${PATH}"
@@ -54,7 +64,7 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then\n\
   echo "$(date): Session $SESSION_NAME already exists. Skipping." >> "$LOG_DIR/cron-skipper.log"\n\
   exit 0\n\
 fi\n\
-tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot /home/bot/.dotnet/tools/agent-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
+tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot DOTNET_CLI_HOME=/home/bot/.dotnet /home/bot/.dotnet/tools/agent-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
 echo "$(date): Started tmux session $SESSION_NAME, log: $LOG_FILE" >> "$LOG_DIR/launcher.log"\n\
 ' > /start.sh && chmod +x /start.sh
 
