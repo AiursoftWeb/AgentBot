@@ -40,12 +40,6 @@ public class GeminiBotOptions
     /// </summary>
     public string? ApiEndpoint { get; set; }
 
-    /// <summary>
-    /// Legacy API key for Gemini. Use ApiKey instead.
-    /// </summary>
-    [Obsolete("Use ApiKey instead")]
-    public string? GeminiApiKey { get; set; }
-
     public bool LocalizationEnabled { get; set; } = false;
 
     /// <summary>

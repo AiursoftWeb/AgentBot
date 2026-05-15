@@ -76,7 +76,6 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `Model` | `GeminiBot__Model` | Yes | Model name (e.g. `gemini-3-pro-preview`, `deepseek-v4-pro`) |
 | `ApiKey` | `GeminiBot__ApiKey` | Yes* | API key for the AI provider |
 | `ApiEndpoint` | `GeminiBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
-| `GeminiApiKey` | `GeminiBot__GeminiApiKey` | Legacy | Deprecated — use `ApiKey` instead. Still works for backward compatibility |
 | `WorkspaceFolder` | `GeminiBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `GeminiTimeout` | `GeminiBot__GeminiTimeout` | No | CLI timeout (default: `00:35:00`) |
 | `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea`, `AzureDevOps` |
@@ -88,26 +87,12 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `Servers__N__UserEmail` | `Servers__N__UserEmail` | Yes | Bot's email for commits |
 | `Servers__N__ContributionBranch` | `Servers__N__ContributionBranch` | Yes | Branch name for bot's MRs/PRs |
 
-> *`ApiKey` can be omitted if `GeminiApiKey` (legacy) is set — the bot falls back automatically.
-
-### Migration from old config
-
-Old `GeminiApiKey` field is fully backward-compatible. Drop your existing `appsettings.json` into the container and it works. Or move to the new `ApiKey` field at your own pace.
-
-**Old → new field mapping:**
-
-```
-GeminiApiKey  →  ApiKey        (rename, or keep using GeminiApiKey)
-(none)        →  Engine        (default: Gemini — your old config needs no change)
-(none)        →  ApiEndpoint   (ignored when Engine=Gemini)
-```
-
 **Server config → Docker env vars:**
 
 ```
-GeminiBot__WorkspaceFolder=/opt/workspace
+GeminiBot__WorkspaceFolder=/workspace
 GeminiBot__Model=gemini-3.1-pro-preview
-GeminiBot__GeminiApiKey=AIza...              # legacy field, still works
+GeminiBot__ApiKey=AIza...
 Servers__0__Provider=GitLab
 Servers__0__EndPoint=https://gitlab.aiursoft.com
 Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
