@@ -5,10 +5,6 @@ using Microsoft.Extensions.Options;
 
 namespace Aiursoft.GeminiBot.Services;
 
-/// <summary>
-/// Service responsible for invoking the Gemini CLI to process code changes.
-/// Handles task file creation, .git directory management, and CLI execution.
-/// </summary>
 public class GeminiCliService(
     IGeminiCommandService commandService,
     IOptions<GeminiBotOptions> options,
@@ -16,13 +12,6 @@ public class GeminiCliService(
 {
     private readonly GeminiBotOptions _options = options.Value;
 
-    /// <summary>
-    /// Invoke Gemini CLI to fix the code based on the task description.
-    /// </summary>
-    /// <param name="workPath">The workspace path where the repository is cloned.</param>
-    /// <param name="taskDescription">The task description to pass to Gemini CLI.</param>
-    /// <param name="hideGitFolder">If true, hides .git folder to prevent Gemini from manipulating git. If false, allows Gemini to see git history.</param>
-    /// <returns>True if Gemini CLI completed successfully, false otherwise.</returns>
     public virtual async Task<(bool Success, string Output, string Error)> InvokeGeminiCliAsync(string workPath, string taskDescription, bool hideGitFolder)
     {
         string? tempFile = null;
@@ -35,51 +24,35 @@ public class GeminiCliService(
             tempFile = Path.Combine(workPath, ".gemini-task.txt");
             await File.WriteAllTextAsync(tempFile, taskDescription);
 
-            // Hide .git directory to prevent Gemini from manipulating git (if requested)
+            // Hide .git directory to prevent AI from manipulating git (if requested)
             if (hideGitFolder && Directory.Exists(gitPath))
             {
-                logger.LogInformation("Hiding .git directory to prevent Gemini CLI from manipulating git...");
+                logger.LogInformation("Hiding .git directory to prevent AI from manipulating git...");
                 Directory.Move(gitPath, gitBackupPath);
             }
             else if (!hideGitFolder)
             {
-                logger.LogInformation(".git directory is accessible to Gemini CLI for viewing history");
+                logger.LogInformation(".git directory is accessible for viewing history");
             }
 
-            logger.LogInformation("Running Gemini CLI in {WorkPath}", workPath);
+            logger.LogInformation("Running AI engine ({Engine}) in {WorkPath}", _options.Engine, workPath);
 
-            // Build Gemini command with optional --model parameter
-            var geminiCommand = "gemini --yolo";
-            if (!string.IsNullOrWhiteSpace(_options.Model))
-            {
-                geminiCommand += $" --model {_options.Model}";
-            }
-            geminiCommand += " < .gemini-task.txt";
-
-            // Build environment variables dictionary
-            IDictionary<string, string?>? envVars = null;
-            if (!string.IsNullOrWhiteSpace(_options.GeminiApiKey))
-            {
-                envVars = new Dictionary<string, string?>
-                {
-                    ["GEMINI_API_KEY"] = _options.GeminiApiKey
-                };
-            }
+            var (command, envVars) = BuildCommandAndEnv();
 
             var (code, output, error) = await commandService.RunCommandAsync(
                 bin: "/bin/bash",
-                arg: $"-c \"{geminiCommand}\"",
+                arg: $"-c \"{command}\"",
                 path: workPath,
                 timeout: _options.GeminiTimeout,
                 environmentVariables: envVars);
 
             if (code != 0)
             {
-                logger.LogError("Gemini CLI failed with exit code {Code}. Output: {Output}. Error: {Error}", code, output, error);
+                logger.LogError("AI CLI failed with exit code {Code}. Output: {Output}. Error: {Error}", code, output, error);
                 return (false, output, error);
             }
 
-            logger.LogInformation("Gemini CLI completed successfully. It says: {Output}", output);
+            logger.LogInformation("AI CLI completed successfully. It says: {Output}", output);
             return (true, output, error);
         }
         finally
@@ -115,5 +88,44 @@ public class GeminiCliService(
                 }
             }
         }
+    }
+
+    private (string Command, IDictionary<string, string?>? EnvVars) BuildCommandAndEnv()
+    {
+        // Resolve API key with backward compatibility
+        var apiKey = _options.ApiKey ?? _options.GeminiApiKey;
+
+        var modelArg = !string.IsNullOrWhiteSpace(_options.Model)
+            ? $" --model {_options.Model}"
+            : "";
+
+        return _options.Engine switch
+        {
+            AiEngine.Gemini => (
+                $"gemini --yolo{modelArg} < .gemini-task.txt",
+                BuildEnv("GEMINI_API_KEY", apiKey)),
+
+            AiEngine.Claude => (
+                $"claude --dangerously-skip-permissions --print{modelArg} < .gemini-task.txt",
+                BuildClaudeEnv(apiKey)),
+
+            _ => throw new ArgumentOutOfRangeException(nameof(_options.Engine), $"Unsupported AI engine: {_options.Engine}")
+        };
+    }
+
+    private static IDictionary<string, string?>? BuildEnv(string key, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return new Dictionary<string, string?> { [key] = value };
+    }
+
+    private IDictionary<string, string?>? BuildClaudeEnv(string? apiKey)
+    {
+        var vars = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            vars["ANTHROPIC_API_KEY"] = apiKey;
+        if (!string.IsNullOrWhiteSpace(_options.ApiEndpoint))
+            vars["ANTHROPIC_BASE_URL"] = _options.ApiEndpoint;
+        return vars.Count > 0 ? vars : null;
     }
 }

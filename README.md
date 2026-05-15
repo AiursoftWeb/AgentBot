@@ -10,110 +10,272 @@
 
 Gemini Bot is designed to autonomously manage the entire lifecycle of software development tasks on GitLab/GitHub. It follows a strictly prioritized workflow to ensure existing work is maintained before starting new tasks.
 
-### 1. Workflow Priorities
+### Workflow Priorities
 
 The bot operates in two main phases:
 
 #### Phase 1: Merge Request Maintenance (Highest Priority)
 Before looking for new work, the bot ensures its existing contributions are healthy. It scans for Merge Requests assigned to it or created by it that need attention:
-- **Conflict Resolution**: If an MR has merge conflicts, the bot merges the target branch and invokes Gemini to resolve the conflicts.
-- **Addressing Reviews**: If a human reviewer provides feedback (discussions), the bot reads the feedback and asks Gemini to implement the requested changes.
-- **Fixing Pipelines**: If the CI/CD pipeline fails, the bot automatically downloads the failure logs from all failed jobs and asks Gemini to fix the root cause.
+- **Conflict Resolution**: If an MR has merge conflicts, the bot merges the target branch and invokes AI to resolve the conflicts.
+- **Addressing Reviews**: If a human reviewer provides feedback, the bot reads the feedback and asks AI to implement the requested changes.
+- **Fixing Pipelines**: If the CI/CD pipeline fails, the bot automatically downloads the failure logs and asks AI to fix the root cause.
 
 #### Phase 2: Issue Resolution
 Once all existing MRs are healthy, the bot looks for new issues assigned to it:
 - It clones the repository and creates a dedicated branch.
-- It passes the issue description to Gemini to implement the feature or fix.
+- It passes the issue description to AI to implement the feature or fix.
 - It automatically handles forking if it doesn't have direct push access to the repository.
 - It creates a new Merge Request and assigns itself to it for continued maintenance.
 
-### 2. Internal Logic Details
+### AI Engine Support
 
-- **Workspace Management**: Each task is processed in a unique temporary directory within the `WorkspaceFolder`. This prevents cross-task interference.
-- **Git Visibility Control**:
-    - **For new issues**: The `.git` folder is hidden during Gemini's execution. This ensures Gemini focuses only on the code and doesn't attempt to manipulate git history or state.
-    - **For MR maintenance**: The `.git` folder remains visible. This allows Gemini to analyze the project history and previous commits to better understand the context of failures or review comments.
-- **Smart Pushing**:
-    - If the bot has push access, it pushes directly to the source branch.
-    - If fixing a third-party MR where it lacks permissions, it pushes to its own fork and creates a replacement MR, unassigning itself from the original one.
-- **NuGet Versioning**: The bot is programmed to automatically bump NuGet package versions when it detects changes that warrant a new release.
+The bot supports multiple AI backends via the `Engine` configuration:
 
-## Installation
+| Engine | CLI | Yolo flag |
+|--------|-----|-----------|
+| `Gemini` | `gemini --yolo` | Built-in |
+| `Claude` | `claude --dangerously-skip-permissions --print` | `--dangerously-skip-permissions` |
 
-Requirements:
+When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
 
-1. [.NET 10 SDK](http://dot.net/)
+## Configuration
 
-Run the following command to install this tool:
+Configuration follows standard .NET conventions: `appsettings.json` → environment variables → CLI args. Environment variables use `__` as separator.
 
-```bash
-dotnet tool install --global Aiursoft.GeminiBot
-```
+### appsettings.json
 
-## Usage
-
-After getting the binary, setup your GitLab and Gemini API KEY:
-
-```
-cat ./appsettings.json
+```json
 {
   "Servers": [
     {
       "Provider": "GitLab",
       "EndPoint": "https://gitlab.aiursoft.com",
       "PushEndPoint": "https://{0}@gitlab.aiursoft.com",
-      "DisplayName": "Gemini Bot",
+      "DisplayName": "Bot",
       "UserName": "gemini-bot",
-      "UserEmail": "gemini@aiursoft.com",
+      "UserEmail": "bot@aiursoft.com",
       "ContributionBranch": "users/gemini/auto-fix-issue",
       "Token": "",
       "OnlyUpdate": false
     }
   ],
   "GeminiBot": {
-    "WorkspaceFolder": "/tmp/NugetNinjaWorkspace",
-    "GeminiTimeout": "00:35:00",
-    "ForkWaitDelayMs": 5000,
-    "Model": "gemini-3-pro-preview",
-    "GeminiApiKey": ""
+    "Engine": "Claude",
+    "Model": "deepseek-v4-pro",
+    "ApiKey": "sk-xxx",
+    "ApiEndpoint": "https://api.deepseek.com/anthropic"
   }
 }
 ```
 
-Make sure to fill in the `Token` and `GeminiApiKey` fields with your actual GitLab personal access token and Gemini API key, respectively.
+### Configuration reference
 
-run it directly in the terminal.
+| Key | Env var | Required | Description |
+|-----|---------|----------|-------------|
+| `Engine` | `GeminiBot__Engine` | No | AI backend: `Gemini` (default) or `Claude` |
+| `Model` | `GeminiBot__Model` | Yes | Model name (e.g. `gemini-3-pro-preview`, `deepseek-v4-pro`) |
+| `ApiKey` | `GeminiBot__ApiKey` | Yes* | API key for the AI provider |
+| `ApiEndpoint` | `GeminiBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
+| `GeminiApiKey` | `GeminiBot__GeminiApiKey` | Legacy | Deprecated — use `ApiKey` instead. Still works for backward compatibility |
+| `WorkspaceFolder` | `GeminiBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
+| `GeminiTimeout` | `GeminiBot__GeminiTimeout` | No | CLI timeout (default: `00:35:00`) |
+| `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea`, `AzureDevOps` |
+| `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
+| `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
+| `Servers__N__PushEndPoint` | `Servers__N__PushEndPoint` | Yes | Git push URL template (use `{0}` for username placeholder) |
+| `Servers__N__DisplayName` | `Servers__N__DisplayName` | Yes | Bot's display name for commits |
+| `Servers__N__UserName` | `Servers__N__UserName` | Yes | Bot's username on the git host |
+| `Servers__N__UserEmail` | `Servers__N__UserEmail` | Yes | Bot's email for commits |
+| `Servers__N__ContributionBranch` | `Servers__N__ContributionBranch` | Yes | Branch name for bot's MRs/PRs |
 
-```cmd
-C:\workspace> gemini-bot
+> *`ApiKey` can be omitted if `GeminiApiKey` (legacy) is set — the bot falls back automatically.
 
-16:28 info: Aiursoft.GeminiBot.Entry[0] Starting Gemini Bot for issue processing...
-16:28 info: Aiursoft.GeminiBot.Entry[0] Processing server: GitLab...
-16:28 info: Aiursoft.GeminiBot.Entry[0]   ================ CHECKING MERGE REQUESTS ================ 
-16:28 info: Aiursoft.GeminiBot.Entry[0] Checking merge requests before processing issues...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Checking merge requests submitted by gemini-bot...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Checking MR #33: Fix for issue #8: 砍掉PublicId。设计的不好。...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] MR #33 pipeline is success, no action needed
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Checking MR #2: Fix for issue #1: UDP测试，只要连续10个包都丢了，且一个包都没收到，立刻停止测试，给0分。不需要浪费时间了。...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] MR #2 pipeline is success, no action needed
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Checking MR #32: Fix for issue #9: 文档的分享功能非常confusing....
-16:28 warn: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] MR #32 has pipeline with status: failed
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Found 1 failed merge requests to fix
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Processing failed MR #32: Fix for issue #9: 文档的分享功能非常confusing.
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] MR #32: Using project ID 375 for pipeline operations (source: 375, target: 341)
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Getting repository details from source project 375...
-16:28 info: Aiursoft.NugetNinja.GitServerBase.Services.Providers.GitLab.GitLabService[0] Getting repository details for 375/ in GitLab...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Fetching jobs for pipeline 40179 in project 375...
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Found 1 failed jobs in pipeline 40179
-16:28 info: Aiursoft.GeminiBot.Services.MergeRequestProcessor[0] Downloading log for failed job: lint (ID: 230579)
+### Migration from old config
+
+Old `GeminiApiKey` field is fully backward-compatible. Drop your existing `appsettings.json` into the container and it works. Or move to the new `ApiKey` field at your own pace.
+
+**Old → new field mapping:**
+
+```
+GeminiApiKey  →  ApiKey        (rename, or keep using GeminiApiKey)
+(none)        →  Engine        (default: Gemini — your old config needs no change)
+(none)        →  ApiEndpoint   (ignored when Engine=Gemini)
 ```
 
-## Run locally
+**Server config → Docker env vars:**
 
-Requirements about how to run
+```
+GeminiBot__WorkspaceFolder=/opt/workspace
+GeminiBot__Model=gemini-3.1-pro-preview
+GeminiBot__GeminiApiKey=AIza...              # legacy field, still works
+Servers__0__Provider=GitLab
+Servers__0__EndPoint=https://gitlab.aiursoft.com
+Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
+Servers__0__DisplayName=Gemini Bot
+Servers__0__UserName=gemini-bot
+Servers__0__UserEmail=gemini@aiursoft.com
+Servers__0__ContributionBranch=users/gemini/auto-fix-issue
+Servers__0__Token=glpat-...
+```
 
+## Installation
+
+Requirements:
 1. [.NET 10 SDK](http://dot.net/)
-2. Execute `dotnet run` to run the app
+
+```bash
+dotnet tool install --global Aiursoft.GeminiBot
+```
+
+## Local run
+
+```bash
+gemini-bot
+```
+
+## Docker Deployment
+
+The container runs silently in the background via cron. No ports exposed.
+
+### Docker Run
+
+```bash
+docker run -d \
+  --name gemini-bot \
+  -e GeminiBot__Engine=Claude \
+  -e GeminiBot__Model=deepseek-v4-pro \
+  -e GeminiBot__ApiKey=sk-xxx \
+  -e GeminiBot__ApiEndpoint=https://api.deepseek.com/anthropic \
+  -e Servers__0__Provider=GitLab \
+  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__DisplayName="Bot" \
+  -e Servers__0__UserName=gemini-bot \
+  -e Servers__0__UserEmail=bot@aiursoft.com \
+  -e Servers__0__ContributionBranch=users/gemini/auto-fix-issue \
+  -e Servers__0__Token=glpat-xxx \
+  hub.aiursoft.com/aiursoft/geminibot
+```
+
+### Docker Compose
+
+```yaml
+version: "3.8"
+services:
+  gemini-bot:
+    image: hub.aiursoft.com/aiursoft/geminibot
+    restart: unless-stopped
+    environment:
+      GeminiBot__Engine: Claude
+      GeminiBot__Model: deepseek-v4-pro
+      GeminiBot__ApiKey: sk-xxx
+      GeminiBot__ApiEndpoint: https://api.deepseek.com/anthropic
+      Servers__0__Provider: GitLab
+      Servers__0__EndPoint: https://gitlab.aiursoft.com
+      Servers__0__PushEndPoint: "https://{0}@gitlab.aiursoft.com"
+      Servers__0__DisplayName: Bot
+      Servers__0__UserName: gemini-bot
+      Servers__0__UserEmail: bot@aiursoft.com
+      Servers__0__ContributionBranch: users/gemini/auto-fix-issue
+      Servers__0__Token: glpat-xxx
+    volumes:
+      - gemini-bot-workspace:/workspace
+      - gemini-bot-logs:/logs
+
+volumes:
+  gemini-bot-workspace:
+  gemini-bot-logs:
+```
+
+### Kubernetes (CronJob)
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gemini-bot
+spec:
+  schedule: "0,30 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: gemini-bot
+              image: hub.aiursoft.com/aiursoft/geminibot
+              env:
+                - name: GeminiBot__Engine
+                  value: Claude
+                - name: GeminiBot__Model
+                  value: deepseek-v4-pro
+                - name: GeminiBot__ApiKey
+                  valueFrom:
+                    secretKeyRef:
+                      name: gemini-bot-secrets
+                      key: api-key
+                - name: GeminiBot__ApiEndpoint
+                  value: https://api.deepseek.com/anthropic
+                - name: Servers__0__Provider
+                  value: GitLab
+                - name: Servers__0__EndPoint
+                  value: https://gitlab.aiursoft.com
+                - name: Servers__0__PushEndPoint
+                  value: "https://{0}@gitlab.aiursoft.com"
+                - name: Servers__0__DisplayName
+                  value: Bot
+                - name: Servers__0__UserName
+                  value: gemini-bot
+                - name: Servers__0__UserEmail
+                  value: bot@aiursoft.com
+                - name: Servers__0__ContributionBranch
+                  value: users/gemini/auto-fix-issue
+                - name: Servers__0__Token
+                  valueFrom:
+                    secretKeyRef:
+                      name: gemini-bot-secrets
+                      key: gitlab-token
+              volumeMounts:
+                - name: workspace
+                  mountPath: /workspace
+                - name: logs
+                  mountPath: /logs
+          volumes:
+            - name: workspace
+              emptyDir: {}
+            - name: logs
+              emptyDir: {}
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gemini-bot-secrets
+type: Opaque
+stringData:
+  api-key: sk-xxx
+  gitlab-token: glpat-xxx
+```
+
+### Docker Swarm
+
+```bash
+docker service create \
+  --name gemini-bot \
+  --restart-condition any \
+  -e GeminiBot__Engine=Claude \
+  -e GeminiBot__Model=deepseek-v4-pro \
+  -e GeminiBot__ApiKey=sk-xxx \
+  -e GeminiBot__ApiEndpoint=https://api.deepseek.com/anthropic \
+  -e Servers__0__Provider=GitLab \
+  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__DisplayName="Bot" \
+  -e Servers__0__UserName=gemini-bot \
+  -e Servers__0__UserEmail=bot@aiursoft.com \
+  -e Servers__0__ContributionBranch=users/gemini/auto-fix-issue \
+  -e Servers__0__Token=glpat-xxx \
+  hub.aiursoft.com/aiursoft/geminibot
+```
 
 ## Run in Microsoft Visual Studio
 
