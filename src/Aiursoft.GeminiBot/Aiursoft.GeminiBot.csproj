@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Version>10.0.78</Version>
+    <Version>10.0.79</Version>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>gemini-bot</AssemblyName>
     <RootNamespace>Aiursoft.GeminiBot</RootNamespace>
@@ -46,7 +46,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Aiursoft.NugetNinja.GitServerBase" Version="10.0.31" />
+    <PackageReference Include="Aiursoft.NugetNinja.GitServerBase" Version="10.0.32" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.8" />
   </ItemGroup>
