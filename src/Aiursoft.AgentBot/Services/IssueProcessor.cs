@@ -1,8 +1,10 @@
+using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Aiursoft.AgentBot.Services;
 
@@ -13,8 +15,10 @@ public class IssueProcessor(
     IVersionControlService versionControl,
     BotWorkflowEngine workflowEngine,
     HttpWrapper httpWrapper,
+    IOptions<AgentBotOptions> options,
     ILogger<IssueProcessor> logger)
 {
+    private readonly AgentBotOptions _options = options.Value;
     public async Task<ProcessResult> ProcessAsync(Issue issue, Server server)
     {
         try
@@ -248,6 +252,7 @@ Please review carefully before merging.";
             if (server.Provider == "GitLab")
             {
                 await AssignBotToGitLabMr(server, issue, branchName);
+                await AssignReviewerToGitLabMr(server, issue.ProjectId, branchName);
             }
         }
     }
@@ -273,6 +278,44 @@ Please review carefully before merging.";
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to assign MR to bot for issue #{IssueId}", issue.Iid);
+        }
+    }
+
+    private async Task AssignReviewerToGitLabMr(Server server, int projectId, string branchName)
+    {
+        var reviewerUsername = _options.Reviewer;
+        if (string.IsNullOrWhiteSpace(reviewerUsername))
+        {
+            return;
+        }
+
+        try
+        {
+            // Look up reviewer user ID
+            var usersUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/users?username={Uri.EscapeDataString(reviewerUsername)}";
+            var users = await httpWrapper.SendHttpAndGetJson<List<GitLabUser>>(usersUrl, HttpMethod.Get, server.Token);
+            var reviewer = users.FirstOrDefault();
+            if (reviewer == null)
+            {
+                logger.LogWarning("Reviewer '{Reviewer}' not found on {EndPoint}", reviewerUsername, server.EndPoint);
+                return;
+            }
+
+            // Find the MR created for this branch
+            var mrUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests?state=opened&source_branch={branchName}";
+            var mrs = await httpWrapper.SendHttpAndGetJson<List<GitLabMergeRequestDto>>(mrUrl, HttpMethod.Get, server.Token);
+            var mr = mrs.FirstOrDefault();
+
+            if (mr != null)
+            {
+                var updateUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{mr.Iid}?reviewer_ids[]={reviewer.Id}";
+                await httpWrapper.SendHttpAndGetJson<object>(updateUrl, HttpMethod.Put, server.Token);
+                logger.LogInformation("Assigned reviewer @{Reviewer} to MR #{IID}", reviewerUsername, mr.Iid);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to assign reviewer @{Reviewer} to MR for project {ProjectId}", reviewerUsername, projectId);
         }
     }
 }

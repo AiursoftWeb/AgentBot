@@ -217,6 +217,7 @@ public class MergeRequestProcessorTests
             _versionControlMock.Object,
             workflowEngine,
             _httpWrapper,
+            _options,
             _loggerMock.Object);
 
 
@@ -335,6 +336,7 @@ public class MergeRequestProcessorTests
             _versionControlMock.Object,
             workflowEngine,
             _httpWrapper,
+            _options,
             _loggerMock.Object);
 
         // Act
@@ -452,6 +454,7 @@ public class MergeRequestProcessorTests
             _versionControlMock.Object,
             workflowEngine,
             _httpWrapper,
+            _options,
             _loggerMock.Object);
 
         // Act
@@ -533,6 +536,7 @@ public class MergeRequestProcessorTests
             _versionControlMock.Object,
             workflowEngine,
             _httpWrapper,
+            _options,
             _loggerMock.Object);
 
         // Act

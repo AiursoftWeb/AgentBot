@@ -169,7 +169,7 @@ public class IssueProcessorTests
             _options,
             _workflowLoggerMock.Object);
 
-        _issueProcessor = new IssueProcessor(_versionControlMock.Object, workflowEngine, _httpWrapper, _loggerMock.Object);
+        _issueProcessor = new IssueProcessor(_versionControlMock.Object, workflowEngine, _httpWrapper, _options, _loggerMock.Object);
 
         // Act
         await _issueProcessor.ProcessAsync(issue, server);

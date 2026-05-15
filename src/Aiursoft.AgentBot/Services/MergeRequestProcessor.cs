@@ -1,9 +1,11 @@
+using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services;
 using Aiursoft.NugetNinja.GitServerBase.Models.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text;
 
 namespace Aiursoft.AgentBot.Services;
@@ -15,8 +17,10 @@ public class MergeRequestProcessor(
     IVersionControlService versionControl,
     BotWorkflowEngine workflowEngine,
     HttpWrapper httpWrapper,
+    IOptions<AgentBotOptions> options,
     ILogger<MergeRequestProcessor> logger)
 {
+    private readonly AgentBotOptions _options = options.Value;
     public async Task<ProcessResult> ProcessMergeRequestsAsync(Server server)
     {
         try
@@ -325,8 +329,46 @@ Please review carefully before merging.";
                 var updateNewMrUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{oldMr.ProjectId}/merge_requests/{newMr.Iid}?assignee_ids={user.Id}";
                 await httpWrapper.SendHttpAndGetJson<object>(updateNewMrUrl, HttpMethod.Put, server.Token);
             }
+
+            await AssignReviewerToNewMrAsync(server, oldMr.ProjectId, botBranchName);
         }
         catch (Exception ex) { logger.LogError(ex, "Failed to manage MR assignments in GitLab"); }
+    }
+
+    private async Task AssignReviewerToNewMrAsync(Server server, int projectId, string branchName)
+    {
+        var reviewerUsername = _options.Reviewer;
+        if (string.IsNullOrWhiteSpace(reviewerUsername))
+        {
+            return;
+        }
+
+        try
+        {
+            var usersUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/users?username={Uri.EscapeDataString(reviewerUsername)}";
+            var users = await httpWrapper.SendHttpAndGetJson<List<GitLabUser>>(usersUrl, HttpMethod.Get, server.Token);
+            var reviewer = users.FirstOrDefault();
+            if (reviewer == null)
+            {
+                logger.LogWarning("Reviewer '{Reviewer}' not found on {EndPoint}", reviewerUsername, server.EndPoint);
+                return;
+            }
+
+            var mrUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests?state=opened&source_branch={branchName}";
+            var mrs = await httpWrapper.SendHttpAndGetJson<List<GitLabMergeRequestDto>>(mrUrl, HttpMethod.Get, server.Token);
+            var mr = mrs.FirstOrDefault();
+
+            if (mr != null)
+            {
+                var updateUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{mr.Iid}?reviewer_ids[]={reviewer.Id}";
+                await httpWrapper.SendHttpAndGetJson<object>(updateUrl, HttpMethod.Put, server.Token);
+                logger.LogInformation("Assigned reviewer @{Reviewer} to MR #{IID}", reviewerUsername, mr.Iid);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to assign reviewer @{Reviewer} to MR", reviewerUsername);
+        }
     }
 
     private async Task<string> GetFailureLogsAsync(Server server, int projectId, int pipelineId)
