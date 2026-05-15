@@ -93,7 +93,9 @@ public class GeminiCliService(
     private (string Command, IDictionary<string, string?>? EnvVars) BuildCommandAndEnv()
     {
         // Resolve API key with backward compatibility
+#pragma warning disable CS0618
         var apiKey = _options.ApiKey ?? _options.GeminiApiKey;
+#pragma warning restore CS0618
 
         var modelArg = !string.IsNullOrWhiteSpace(_options.Model)
             ? $" --model {_options.Model}"
