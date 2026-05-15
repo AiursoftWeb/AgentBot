@@ -63,7 +63,8 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
     "Engine": "Claude",
     "Model": "deepseek-v4-pro",
     "ApiKey": "sk-xxx",
-    "ApiEndpoint": "https://api.deepseek.com/anthropic"
+    "ApiEndpoint": "https://api.deepseek.com/anthropic",
+    "Reviewer": "senior-dev"
   }
 }
 ```
@@ -78,6 +79,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
+| `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
 | `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea`, `AzureDevOps` |
 | `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
 | `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
@@ -93,6 +95,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 AgentBot__WorkspaceFolder=/workspace
 AgentBot__Model=gemini-3.1-pro-preview
 AgentBot__ApiKey=AIza...
+AgentBot__Reviewer=senior-dev
 Servers__0__Provider=GitLab
 Servers__0__EndPoint=https://gitlab.aiursoft.com
 Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
@@ -131,6 +134,7 @@ docker run -d \
   -e AgentBot__Model=deepseek-v4-pro \
   -e AgentBot__ApiKey=sk-xxx \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \
+  -e AgentBot__Reviewer=senior-dev \
   -e Servers__0__Provider=GitLab \
   -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
   -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
@@ -155,6 +159,7 @@ services:
       AgentBot__Model: deepseek-v4-pro
       AgentBot__ApiKey: sk-xxx
       AgentBot__ApiEndpoint: https://api.deepseek.com/anthropic
+      AgentBot__Reviewer: senior-dev
       Servers__0__Provider: GitLab
       Servers__0__EndPoint: https://gitlab.aiursoft.com
       Servers__0__PushEndPoint: "https://{0}@gitlab.aiursoft.com"
@@ -200,6 +205,8 @@ spec:
                       key: api-key
                 - name: AgentBot__ApiEndpoint
                   value: https://api.deepseek.com/anthropic
+                - name: AgentBot__Reviewer
+                  value: senior-dev
                 - name: Servers__0__Provider
                   value: GitLab
                 - name: Servers__0__EndPoint
@@ -251,6 +258,7 @@ docker service create \
   -e AgentBot__Model=deepseek-v4-pro \
   -e AgentBot__ApiKey=sk-xxx \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \
+  -e AgentBot__Reviewer=senior-dev \
   -e Servers__0__Provider=GitLab \
   -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
   -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \

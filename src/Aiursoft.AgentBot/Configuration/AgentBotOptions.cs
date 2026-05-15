@@ -60,4 +60,10 @@ public class AgentBotOptions
     public int LocalizationConcurrentRequests { get; set; } = 8;
 
     public string[] LocalizationTargetLanguages { get; set; } = [];
+
+    /// <summary>
+    /// GitLab username of the reviewer to auto-assign on newly created MRs.
+    /// Leave empty to skip reviewer assignment.
+    /// </summary>
+    public string? Reviewer { get; set; }
 }
