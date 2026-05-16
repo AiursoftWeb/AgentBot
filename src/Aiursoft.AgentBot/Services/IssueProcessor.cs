@@ -252,7 +252,7 @@ Please review carefully before merging.";
             if (server.Provider == "GitLab")
             {
                 await AssignBotToGitLabMr(server, issue, branchName);
-                await AssignReviewerToGitLabMr(server, issue.ProjectId, branchName);
+                await AssignReviewerToGitLabMr(server, issue.ProjectId, branchName, issue);
             }
         }
     }
@@ -281,12 +281,19 @@ Please review carefully before merging.";
         }
     }
 
-    private async Task AssignReviewerToGitLabMr(Server server, int projectId, string branchName)
+    private async Task AssignReviewerToGitLabMr(Server server, int projectId, string branchName, Issue? issue = null)
     {
         var reviewerUsername = _options.Reviewer;
         if (string.IsNullOrWhiteSpace(reviewerUsername))
         {
-            return;
+            if (issue?.Author?.Login is { } login)
+            {
+                reviewerUsername = login;
+            }
+            else
+            {
+                return;
+            }
         }
 
         try
