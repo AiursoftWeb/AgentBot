@@ -125,9 +125,11 @@ public class PipelineProcessorTests
         Assert.IsNotNull(_capturedPostRequest);
 
         var body = await _capturedPostRequest.Content!.ReadAsStringAsync();
-        StringAssert.Contains(body, "主分支的编译管道失败");
-        StringAssert.Contains(body, "Build error log");
-        StringAssert.Contains(body, "123"); // Bot user ID
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        Assert.AreEqual("主分支的编译管道失败", root.GetProperty("title").GetString());
+        StringAssert.Contains(root.GetProperty("description").GetString(), "Build error log");
+        Assert.AreEqual(123, root.GetProperty("assignee_ids")[0].GetInt32());
     }
 
     [TestMethod]
