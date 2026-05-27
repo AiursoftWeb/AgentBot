@@ -5,6 +5,7 @@ using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 
 namespace Aiursoft.AgentBot.Services;
 

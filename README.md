@@ -80,7 +80,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
 | `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
-| `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea`, `AzureDevOps` |
+| `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea` |
 | `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
 | `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
 | `Servers__N__PushEndPoint` | `Servers__N__PushEndPoint` | Yes | Git push URL template (use `{0}` for username placeholder) |

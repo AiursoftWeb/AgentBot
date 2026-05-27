@@ -6,7 +6,6 @@ using Aiursoft.AgentBot.Services;
 using Aiursoft.AgentBot.Services.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
-using Aiursoft.NugetNinja.GitServerBase.Services.Providers.AzureDevOps;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers.Gitea;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers.GitHub;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers.GitLab;
@@ -47,7 +46,6 @@ static IHostBuilder CreateHostBuilder(string[] args)
             services.AddGitRunner();
             services.AddTransient<IVersionControlService, GitHubService>();
             services.AddTransient<IVersionControlService, GiteaService>();
-            services.AddTransient<IVersionControlService, AzureDevOpsService>();
             services.AddTransient<IVersionControlService, GitLabService>();
             services.AddTransient<HttpWrapper>();
             services.AddTransient<IAiWorkspaceManager, AiWorkspaceManager>();
