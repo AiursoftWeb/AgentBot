@@ -185,7 +185,7 @@ public class PipelineProcessor(
         var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/issues/{issueIid}";
         var content = new StringContent(
             System.Text.Json.JsonSerializer.Serialize(new { state_event = "close" }),
-            System.Text.Encoding.UTF8,
+            Encoding.UTF8,
             "application/json");
 
         var response = await client.PutAsync(url, content);
@@ -227,7 +227,7 @@ public class PipelineProcessor(
         var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{mrIid}";
         var content = new StringContent(
             System.Text.Json.JsonSerializer.Serialize(new { state_event = "close" }),
-            System.Text.Encoding.UTF8,
+            Encoding.UTF8,
             "application/json");
 
         var response = await client.PutAsync(url, content);
