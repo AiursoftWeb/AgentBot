@@ -82,6 +82,11 @@ public class PipelineProcessor(
                 var logs = await GetFailureLogsAsync(server, project.Id, latestPipeline.Id);
                 await CreateIssueAsync(server, project.Id, issueTitle, logs);
             }
+            else if (latestPipeline?.Status == "success")
+            {
+                logger.LogInformation("Pipeline for {ProjectName} succeeded. Checking if pipeline failure issues need closing...", project.Name);
+                await ClosePipelineFailureIssuesAsync(server, project);
+            }
             else
             {
                 logger.LogInformation("Pipeline for {ProjectName} is {Status}.", project.Name, latestPipeline?.Status ?? "not found");
@@ -152,6 +157,88 @@ public class PipelineProcessor(
         {
             logger.LogError(ex, "Error getting failure logs for pipeline {PipelineId}", pipelineId);
             return "Failed to fetch logs.";
+        }
+    }
+
+    private async Task ClosePipelineFailureIssuesAsync(Server server, GitLabProjectDto project)
+    {
+        var issueTitle = "主分支的编译管道失败";
+        var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{project.Id}/issues?state=opened&search={Uri.EscapeDataString(issueTitle)}&assignee_username={server.UserName}";
+        var issues = await httpWrapper.SendHttpAndGetJson<List<GitLabIssueDto>>(url, HttpMethod.Get, server.Token);
+
+        foreach (var issue in issues.Where(i => i.Title == issueTitle))
+        {
+            logger.LogInformation("Pipeline succeeded. Closing issue #{IssueIid} in project {ProjectName}...", issue.Iid, project.Name);
+
+            await CloseIssueAsync(server, project.Id, issue.Iid);
+            await CloseRelatedMergeRequestsAsync(server, project.Id, issue.Iid);
+
+            logger.LogInformation("Issue #{IssueIid} closed successfully.", issue.Iid);
+        }
+    }
+
+    private async Task CloseIssueAsync(Server server, int projectId, int issueIid)
+    {
+        using var client = httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.Token);
+
+        var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/issues/{issueIid}";
+        var content = new StringContent(
+            System.Text.Json.JsonSerializer.Serialize(new { state_event = "close" }),
+            Encoding.UTF8,
+            "application/json");
+
+        var response = await client.PutAsync(url, content);
+        if (response.IsSuccessStatusCode)
+        {
+            logger.LogInformation("Successfully closed issue #{IssueIid} in project {ProjectId}", issueIid, projectId);
+        }
+        else
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            logger.LogError("Failed to close issue #{IssueIid} in project {ProjectId}: {Error}", issueIid, projectId, error);
+        }
+    }
+
+    private async Task CloseRelatedMergeRequestsAsync(Server server, int projectId, int issueIid)
+    {
+        try
+        {
+            var mrUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/issues/{issueIid}/related_merge_requests";
+            var mergeRequests = await httpWrapper.SendHttpAndGetJson<List<GitLabMergeRequestDto>>(mrUrl, HttpMethod.Get, server.Token);
+
+            foreach (var mr in mergeRequests)
+            {
+                logger.LogInformation("Closing related MR #{MrIid} for issue #{IssueIid}...", mr.Iid, issueIid);
+                await CloseMergeRequestAsync(server, projectId, mr.Iid);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to close related MRs for issue #{IssueIid}. The related_merge_requests API may not be available in this GitLab version.", issueIid);
+        }
+    }
+
+    private async Task CloseMergeRequestAsync(Server server, int projectId, int mrIid)
+    {
+        using var client = httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.Token);
+
+        var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{mrIid}";
+        var content = new StringContent(
+            System.Text.Json.JsonSerializer.Serialize(new { state_event = "close" }),
+            Encoding.UTF8,
+            "application/json");
+
+        var response = await client.PutAsync(url, content);
+        if (response.IsSuccessStatusCode)
+        {
+            logger.LogInformation("Successfully closed MR #{MrIid} in project {ProjectId}", mrIid, projectId);
+        }
+        else
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            logger.LogError("Failed to close MR #{MrIid} in project {ProjectId}: {Error}", mrIid, projectId, error);
         }
     }
 }
