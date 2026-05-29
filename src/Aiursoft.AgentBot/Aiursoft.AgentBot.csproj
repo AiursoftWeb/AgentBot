@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Version>10.0.83</Version>
+    <Version>10.0.84</Version>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>agent-bot</AssemblyName>
     <RootNamespace>Aiursoft.AgentBot</RootNamespace>
