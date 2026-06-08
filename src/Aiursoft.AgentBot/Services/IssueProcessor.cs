@@ -171,7 +171,7 @@ public class IssueProcessor(
 
     private string BuildTaskDescription(Issue issue, string comments)
     {
-        return $"Issue #{issue.Iid}: {issue.Title}\n\n{issue.Description ?? "No description provided."}{comments}\n\nPlease analyze this issue and make the necessary code changes to resolve it.\n\nDon't forget to bump the version for updated nuget package projects after necessary changes, while do NOT add a version tag for projects doesn't publish nuget packages!";
+        return $"Issue #{issue.Iid}: {issue.Title}\n\n{issue.Description ?? "No description provided."}{comments}\n\nPlease analyze this issue and make the necessary code changes to resolve it.\n\nDon't forget to bump the version for updated nuget package projects after necessary changes, while do NOT add a version tag for projects doesn't publish nuget packages!{AiPromptHelper.GetEfMigrationGuidelines()}";
     }
 
     private async Task CreatePullRequestIfNeededAsync(Server server, Repository repository, Issue issue, string branchName, string aiOutput)
