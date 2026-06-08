@@ -251,7 +251,8 @@ Your task:
 4. DO NOT make any unrelated changes. Focus ONLY on resolving the conflicts.
 5. You MUST remove all conflict markers before finishing.
 
-I have already triggered the merge for you, so you will see conflict markers in the affected files. Please fix them immediately.";
+I have already triggered the merge for you, so you will see conflict markers in the affected files. Please fix them immediately.
+{AiPromptHelper.GetEfMigrationGuidelines()}";
 
     private string BuildFailurePrompt(string basePrompt, DetailedMergeRequest details, string failureLogs) =>
         $@"{basePrompt}
@@ -261,14 +262,16 @@ Pipeline URL: {details.Pipeline?.WebUrl}
 Failure Logs:
 {failureLogs}
 
-Please analyze the logs and the codebase to fix the failures.";
+Please analyze the logs and the codebase to fix the failures.
+{AiPromptHelper.GetEfMigrationGuidelines()}";
 
     private string BuildReviewPrompt(string basePrompt) =>
         $@"{basePrompt}
 Status: NEW HUMAN REVIEW/COMMENTS.
 A human has provided feedback on this MR. Please address the comments mentioned in the discussions above, especially those marked as [NEW].
 
-Please analyze the feedback and make the necessary changes.";
+Please analyze the feedback and make the necessary changes.
+{AiPromptHelper.GetEfMigrationGuidelines()}";
 
     private async Task HandleOthersMrFinalizeAsync(WorkflowContext ctx, MergeRequestSearchResult oldMr, string targetBranch, string aiOutput)
     {
