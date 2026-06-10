@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType>
-    <Version>10.0.87</Version>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Version>10.0.88</Version>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>agent-bot</AssemblyName>
     <RootNamespace>Aiursoft.AgentBot</RootNamespace>
@@ -25,7 +26,8 @@
     <PackageProjectUrl>https://gitlab.aiursoft.com/aiursoft/agentbot</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://gitlab.aiursoft.com/aiursoft/agentbot</RepositoryUrl>
-    <PackageReadmeFile>README.md</PackageReadmeFile></PropertyGroup>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
   <ItemGroup>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
@@ -44,7 +46,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Aiursoft.NugetNinja.GitServerBase" Version="10.0.36" />
+    <PackageReference Include="Aiursoft.NugetNinja.GitServerBase" Version="10.0.40" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
   </ItemGroup>
