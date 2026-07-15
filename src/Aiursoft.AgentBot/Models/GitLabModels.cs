@@ -85,6 +85,9 @@ public class GitLabProjectDto
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    [JsonPropertyName("path_with_namespace")]
+    public string PathWithNamespace { get; set; } = string.Empty;
+
     [JsonPropertyName("default_branch")]
     public string DefaultBranch { get; set; } = "master";
 }

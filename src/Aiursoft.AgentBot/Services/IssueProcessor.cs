@@ -87,6 +87,26 @@ public class IssueProcessor(
                         await httpWrapper.SendHttpAndGetJson<object>(deleteUrl, HttpMethod.Delete, server.Token);
                         logger.LogInformation("Successfully deleted broken fork: {UserName}/{RepoName}", server.UserName, repoName);
                     }
+                    catch (HttpRequestException httpEx) when (httpEx.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
+                    {
+                        logger.LogWarning("Received 405 Method Not Allowed. The project might be moved. Trying to delete by ID...");
+                        try
+                        {
+                            var projectPath = Uri.EscapeDataString($"{server.UserName}/{repoName}");
+                            var getUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectPath}";
+                            var projectDetails = await httpWrapper.SendHttpAndGetJson<GitLabProjectDto>(getUrl, HttpMethod.Get, server.Token);
+                            if (projectDetails != null && projectDetails.Id > 0)
+                            {
+                                var deleteByIdUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectDetails.Id}?permanently_remove=true&full_path={Uri.EscapeDataString(projectDetails.PathWithNamespace)}";
+                                await httpWrapper.SendHttpAndGetJson<object>(deleteByIdUrl, HttpMethod.Delete, server.Token);
+                                logger.LogInformation("Successfully deleted broken fork by ID: {ProjectId} with full path {FullPath}", projectDetails.Id, projectDetails.PathWithNamespace);
+                            }
+                        }
+                        catch (Exception ex2)
+                        {
+                            logger.LogError(ex2, "Failed to delete broken fork by ID {UserName}/{RepoName}", server.UserName, repoName);
+                        }
+                    }
                     catch (Exception deleteEx)
                     {
                         logger.LogError(deleteEx, "Failed to delete broken fork {UserName}/{RepoName}", server.UserName, repoName);
@@ -239,6 +259,26 @@ Please review carefully before merging.";
                         var deleteUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectPath}";
                         await httpWrapper.SendHttpAndGetJson<object>(deleteUrl, HttpMethod.Delete, server.Token);
                         logger.LogInformation("Successfully deleted the remote fork: {ProjectPath}", projectPath);
+                    }
+                    catch (HttpRequestException httpEx) when (httpEx.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
+                    {
+                        logger.LogWarning("Received 405 Method Not Allowed. The project might be moved. Trying to delete by ID...");
+                        try
+                        {
+                            var projectPath = Uri.EscapeDataString($"{server.UserName}/{repoName}");
+                            var getUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectPath}";
+                            var projectDetails = await httpWrapper.SendHttpAndGetJson<GitLabProjectDto>(getUrl, HttpMethod.Get, server.Token);
+                            if (projectDetails != null && projectDetails.Id > 0)
+                            {
+                                var deleteByIdUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectDetails.Id}?permanently_remove=true&full_path={Uri.EscapeDataString(projectDetails.PathWithNamespace)}";
+                                await httpWrapper.SendHttpAndGetJson<object>(deleteByIdUrl, HttpMethod.Delete, server.Token);
+                                logger.LogInformation("Successfully deleted the remote fork by ID: {ProjectId} with full path {FullPath}", projectDetails.Id, projectDetails.PathWithNamespace);
+                            }
+                        }
+                        catch (Exception ex2)
+                        {
+                            logger.LogError(ex2, "Failed to delete the remote fork by ID after pull request creation failed.");
+                        }
                     }
                     catch (Exception deleteEx)
                     {
