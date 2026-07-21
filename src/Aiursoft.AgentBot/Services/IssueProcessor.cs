@@ -95,7 +95,7 @@ public class IssueProcessor(
                             var projectPath = Uri.EscapeDataString($"{server.UserName}/{repoName}");
                             var getUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectPath}";
                             var projectDetails = await httpWrapper.SendHttpAndGetJson<GitLabProjectDto>(getUrl, HttpMethod.Get, server.Token);
-                            if (projectDetails != null && projectDetails.Id > 0)
+                            if (projectDetails.Id > 0)
                             {
                                 var deleteByIdUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectDetails.Id}?permanently_remove=true&full_path={Uri.EscapeDataString(projectDetails.PathWithNamespace)}";
                                 await httpWrapper.SendHttpAndGetJson<object>(deleteByIdUrl, HttpMethod.Delete, server.Token);
@@ -268,7 +268,7 @@ Please review carefully before merging.";
                             var projectPath = Uri.EscapeDataString($"{server.UserName}/{repoName}");
                             var getUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectPath}";
                             var projectDetails = await httpWrapper.SendHttpAndGetJson<GitLabProjectDto>(getUrl, HttpMethod.Get, server.Token);
-                            if (projectDetails != null && projectDetails.Id > 0)
+                            if (projectDetails.Id > 0)
                             {
                                 var deleteByIdUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectDetails.Id}?permanently_remove=true&full_path={Uri.EscapeDataString(projectDetails.PathWithNamespace)}";
                                 await httpWrapper.SendHttpAndGetJson<object>(deleteByIdUrl, HttpMethod.Delete, server.Token);
