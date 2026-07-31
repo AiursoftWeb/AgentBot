@@ -108,6 +108,10 @@ public class AiCliService(
                 $"claude --dangerously-skip-permissions --print{modelArg} < .ai-task.txt",
                 BuildClaudeEnv(apiKey)),
 
+            AiEngine.Codex => (
+                $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < .ai-task.txt",
+                null),
+
             _ => throw new ArgumentOutOfRangeException(nameof(_options.Engine), $"Unsupported AI engine: {_options.Engine}")
         };
     }

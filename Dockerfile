@@ -31,10 +31,11 @@ RUN pip install PyYAML requests httpx rich python-dotenv
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
-    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @google/gemini-cli --loglevel verbose
+    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @google/gemini-cli @openai/codex --loglevel verbose
 
-RUN mkdir -p /workspace /logs && chown bot:bot /workspace /logs && \
+RUN mkdir -p /workspace /logs /home/bot/.codex && chown bot:bot /workspace /logs /home/bot/.codex && \
     printf 'export HOME=/home/bot\n\
+export CODEX_HOME=/home/bot/.codex\n\
 export DOTNET_CLI_HOME=/home/bot/.dotnet\n\
 export PATH="$HOME/.dotnet/tools:$PATH"\n\
 ' > /home/bot/.bashrc && chown bot:bot /home/bot/.bashrc
@@ -52,7 +53,10 @@ RUN dotnet tool install --global Aiursoft.AgentBot --add-source /app/src/Aiursof
     dotnet tool install --global Aiursoft.NugetNinja --add-source https://nuget.aiursoft.com/v3/index.json && \
     cp -r /root/.dotnet /home/bot/ && chown -R bot:bot /home/bot/.dotnet
 
-ENV PATH="/home/bot/.dotnet/tools:${PATH}"
+ENV HOME=/home/bot \
+    CODEX_HOME=/home/bot/.codex \
+    DOTNET_CLI_HOME=/home/bot/.dotnet \
+    PATH="/home/bot/.dotnet/tools:${PATH}"
 
 # /start.sh — tmux-based launcher, same pattern as the ms.local server.
 # tmux session acts as both concurrency guard and attachable debug console.
@@ -64,7 +68,7 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then\n\
   echo "$(date): Session $SESSION_NAME already exists. Skipping." >> "$LOG_DIR/cron-skipper.log"\n\
   exit 0\n\
 fi\n\
-tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot DOTNET_CLI_HOME=/home/bot/.dotnet /home/bot/.dotnet/tools/agent-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
+tmux new-session -d -s "$SESSION_NAME" "bash --login -c '\''sudo -E -u bot env HOME=/home/bot CODEX_HOME=/home/bot/.codex DOTNET_CLI_HOME=/home/bot/.dotnet /home/bot/.dotnet/tools/agent-bot 2>&1 | tee $LOG_FILE; echo Bot finished at \$(date)'\''"\n\
 echo "$(date): Started tmux session $SESSION_NAME, log: $LOG_FILE" >> "$LOG_DIR/launcher.log"\n\
 ' > /start.sh && chmod +x /start.sh
 
@@ -72,6 +76,6 @@ echo "$(date): Started tmux session $SESSION_NAME, log: $LOG_FILE" >> "$LOG_DIR/
 RUN echo "*/5 * * * * root /start.sh" > /etc/cron.d/agent-bot && \
     chmod 0644 /etc/cron.d/agent-bot
 
-VOLUME /workspace /logs
+VOLUME /workspace /logs /home/bot/.codex
 
 ENTRYPOINT ["sh", "-c", "printenv | grep -v \"NO_PROXY\" >> /etc/environment && cron -f -L 15"]

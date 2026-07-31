@@ -3,7 +3,8 @@ namespace Aiursoft.AgentBot.Configuration;
 public enum AiEngine
 {
     Gemini,
-    Claude
+    Claude,
+    Codex
 }
 
 /// <summary>
@@ -20,7 +21,7 @@ public class AgentBotOptions
     public int ForkWaitDelayMs { get; set; } = 5000;
 
     /// <summary>
-    /// The AI engine backend to use: "Gemini" or "Claude".
+    /// The AI engine backend to use: "Gemini", "Claude", or "Codex".
     /// </summary>
     public AiEngine Engine { get; set; } = AiEngine.Gemini;
 
@@ -31,6 +32,7 @@ public class AgentBotOptions
 
     /// <summary>
     /// API key for the AI provider. Set as provider-specific env var (GEMINI_API_KEY, ANTHROPIC_API_KEY, etc.).
+    /// Codex uses the persisted ChatGPT login under CODEX_HOME instead.
     /// </summary>
     public string? ApiKey { get; set; }
 

@@ -31,12 +31,15 @@ Once all existing MRs are healthy, the bot looks for new issues assigned to it:
 
 The bot supports multiple AI backends via the `Engine` configuration:
 
-| Engine | CLI | Yolo flag |
-|--------|-----|-----------|
-| `Gemini` | `gemini --yolo` | Built-in |
-| `Claude` | `claude --dangerously-skip-permissions --print` | `--dangerously-skip-permissions` |
+| Engine | CLI | Authentication |
+|--------|-----|----------------|
+| `Gemini` | `gemini --yolo` | API key |
+| `Claude` | `claude --dangerously-skip-permissions --print` | API key |
+| `Codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | ChatGPT device login persisted under `CODEX_HOME` |
 
 When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
+
+When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration.
 
 ## Configuration
 
@@ -73,9 +76,9 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 
 | Key | Env var | Required | Description |
 |-----|---------|----------|-------------|
-| `Engine` | `AgentBot__Engine` | No | AI backend: `Gemini` (default) or `Claude` |
-| `Model` | `AgentBot__Model` | Yes | Model name (e.g. `gemini-3-pro-preview`, `deepseek-v4-pro`) |
-| `ApiKey` | `AgentBot__ApiKey` | Yes* | API key for the AI provider |
+| `Engine` | `AgentBot__Engine` | No | AI backend: `Gemini` (default), `Claude`, or `Codex` |
+| `Model` | `AgentBot__Model` | No | Optional model name passed to the selected CLI with `--model` |
+| `ApiKey` | `AgentBot__ApiKey` | Gemini/Claude only | API key for the AI provider; not used by Codex |
 | `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
@@ -109,10 +112,19 @@ Servers__0__Token=glpat-...
 ## Installation
 
 Requirements:
+
 1. [.NET 10 SDK](http://dot.net/)
+2. The CLI for the selected AI engine
 
 ```bash
 dotnet tool install --global Aiursoft.AgentBot
+```
+
+For local Codex usage, install the official CLI and log in with ChatGPT:
+
+```bash
+npm install --global @openai/codex
+codex login -c cli_auth_credentials_store=file --device-auth
 ```
 
 ## Local run
@@ -126,6 +138,46 @@ agent-bot
 The container runs silently in the background via cron. No ports exposed.
 
 ### Docker Run
+
+#### Codex with a ChatGPT account
+
+Create a persistent volume for the Codex login, then start AgentBot. `AgentBot__Model` is optional and may be removed to use Codex's configured default.
+
+```bash
+docker volume create agent-bot-codex-home
+
+docker run -d \
+  --name agent-bot \
+  -e AgentBot__Engine=Codex \
+  -e AgentBot__Model=your-model-name \
+  -e AgentBot__WorkspaceFolder=/workspace \
+  -e Servers__0__Provider=GitLab \
+  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__DisplayName="Bot" \
+  -e Servers__0__UserName=agent-bot \
+  -e Servers__0__UserEmail=bot@aiursoft.com \
+  -e Servers__0__ContributionBranch=users/codex/auto-fix-issue \
+  -e Servers__0__Token=glpat-xxx \
+  -v agent-bot-codex-home:/home/bot/.codex \
+  -v agent-bot-workspace:/workspace \
+  -v agent-bot-logs:/logs \
+  hub.aiursoft.com/aiursoft/agentbot
+```
+
+Complete the one-time device login interactively and verify it:
+
+```bash
+docker exec -it --user bot agent-bot \
+  codex login -c cli_auth_credentials_store=file --device-auth
+
+docker exec --user bot agent-bot \
+  codex login -c cli_auth_credentials_store=file status
+```
+
+The device login prints a URL and one-time code. Open the URL in a browser, sign in with the ChatGPT account, and enter the code. Device-code login must be enabled in the ChatGPT account security settings or by the ChatGPT workspace administrator. Codex writes the reusable credentials to `/home/bot/.codex/auth.json` and refreshes them in place. The volume must be protected like a secret.
+
+#### API-key providers
 
 ```bash
 docker run -d \
