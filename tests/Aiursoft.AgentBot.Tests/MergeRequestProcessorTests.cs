@@ -371,7 +371,7 @@ public class MergeRequestProcessorTests
             Iid = 1,
             Title = "Conflict MR",
             ProjectId = 101,
-            SourceProjectId = 101,
+            SourceProjectId = 102,
             SourceBranch = "conflict-branch",
             TargetBranch = "main",
             Author = new GitLabUser { Username = "bot-user", Id = 123 }
@@ -384,11 +384,17 @@ public class MergeRequestProcessorTests
             ""MrPipeline"": { ""Status"": ""success"", ""Id"": 555, ""WebUrl"": ""http://gitlab.com/pipeline/555"" }
         }", _jsonOptions)!;
 
-        var repository = new Repository
+        var sourceRepository = new Repository
         {
             CloneUrl = "https://gitlab.com/bot-user/repo.git",
             Name = "repo",
             Owner = new User { Login = "bot-user" }
+        };
+        var targetRepository = new Repository
+        {
+            CloneUrl = "https://gitlab.com/target-group/repo.git",
+            Name = "repo",
+            Owner = new User { Login = "target-group" }
         };
 
         _versionControlMock
@@ -396,8 +402,12 @@ public class MergeRequestProcessorTests
             .ReturnsAsync(detailedMr);
 
         _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+            .Setup(v => v.GetRepository(It.IsAny<string>(), "101", It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(targetRepository);
+
+        _versionControlMock
+            .Setup(v => v.GetRepository(It.IsAny<string>(), "102", It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(sourceRepository);
 
         _aiCliServiceMock
             .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
@@ -421,11 +431,10 @@ public class MergeRequestProcessorTests
                 It.IsAny<IDictionary<string, string?>>()))
             .ReturnsAsync((0, "1", ""));
 
-        // Expect git fetch and git merge
         _commandServiceMock
             .Setup(c => c.RunCommandAsync(
                 "git",
-                "fetch origin main",
+                "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main",
                 It.IsAny<string>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<bool>(),
@@ -435,12 +444,35 @@ public class MergeRequestProcessorTests
         _commandServiceMock
             .Setup(c => c.RunCommandAsync(
                 "git",
-                "merge origin/main",
+                "merge refs/remotes/agentbot-target/main",
                 It.IsAny<string>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<bool>(),
                 It.IsAny<IDictionary<string, string?>>()))
             .ReturnsAsync((1, "CONFLICT (content): Merge conflict in file.txt", ""));
+
+        _commandServiceMock
+            .SetupSequence(c => c.RunCommandAsync(
+                "git",
+                "diff --name-only --diff-filter=U",
+                It.IsAny<string>(),
+                It.IsAny<TimeSpan>(),
+                It.IsAny<bool>(),
+                It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((0, "file.txt", ""))
+            .ReturnsAsync((0, "", ""));
+
+        _commandServiceMock
+            .Setup(c => c.RunCommandAsync(
+                "git", "rev-parse -q --verify MERGE_HEAD", It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((1, "", ""));
+
+        _commandServiceMock
+            .Setup(c => c.RunCommandAsync(
+                "git", "merge-base --is-ancestor refs/remotes/agentbot-target/main HEAD", It.IsAny<string>(),
+                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((0, "", ""));
 
         var workflowEngine = new BotWorkflowEngine(
             _versionControlMock.Object,
@@ -463,9 +495,71 @@ public class MergeRequestProcessorTests
         // Assert
         Assert.IsTrue(result.Success);
 
-        // Verify git fetch and git merge were called
-        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "fetch origin main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
-        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "merge origin/main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
+        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
+        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "merge refs/remotes/agentbot-target/main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
+        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), "conflict-branch", It.IsAny<string>(), true), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ConflictResolution_WithUnmergedFiles_DoesNotPush()
+    {
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "bot-user",
+            Token = "token",
+            EndPoint = "https://gitlab.com",
+            DisplayName = "Bot",
+            UserEmail = "bot@aiursoft.com"
+        };
+        var repository = new Repository
+        {
+            CloneUrl = "https://gitlab.com/bot-user/repo.git",
+            Name = "repo",
+            Owner = new User { Login = "bot-user" }
+        };
+        _versionControlMock
+            .Setup(v => v.GetRepository(It.IsAny<string>(), "102", It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(repository);
+        _workspaceManagerMock.Setup(w => w.PendingCommit(It.IsAny<string>())).ReturnsAsync(true);
+        _workspaceManagerMock.Setup(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _aiCliServiceMock.Setup(a => a.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync((true, "attempted resolution", ""));
+        _commandServiceMock
+            .Setup(c => c.RunCommandAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((0, "", ""));
+        _commandServiceMock
+            .Setup(c => c.RunCommandAsync("git", "merge refs/remotes/agentbot-target/main", It.IsAny<string>(),
+                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((1, "CONFLICT", ""));
+        _commandServiceMock
+            .Setup(c => c.RunCommandAsync("git", "diff --name-only --diff-filter=U", It.IsAny<string>(),
+                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((0, "still-conflicted.cs", ""));
+
+        var workflowEngine = new BotWorkflowEngine(
+            _versionControlMock.Object, _workspaceManagerMock.Object, _aiCliServiceMock.Object,
+            _commandServiceMock.Object, _options, new Mock<ILogger<BotWorkflowEngine>>().Object);
+
+        var result = await workflowEngine.ExecuteAsync(new WorkflowContext
+        {
+            Server = server,
+            ProjectId = "102",
+            SourceBranch = "conflict-branch",
+            TargetBranch = "main",
+            TargetRepositoryCloneUrl = "https://gitlab.com/target-group/repo.git",
+            WorkspaceName = "conflict-validation",
+            Prompt = "Resolve conflicts",
+            CommitMessage = "Resolve conflicts",
+            PushBranch = "conflict-branch",
+            NeedResolveConflicts = true
+        });
+
+        Assert.IsFalse(result.Result.Success);
+        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<bool>()), Times.Never);
     }
 
     [TestMethod]

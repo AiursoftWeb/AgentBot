@@ -6,6 +6,7 @@ using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text;
 
 namespace Aiursoft.AgentBot.Services;
 
@@ -54,6 +55,10 @@ public class BotWorkflowEngine(
             if (await HasChanges(context))
             {
                 await CommitChanges(context);
+                if (context.NeedResolveConflicts)
+                {
+                    await ValidateConflictResolutionAsync(context);
+                }
                 if (finalizeAsync != null)
                 {
                     await finalizeAsync(context);
@@ -114,9 +119,34 @@ public class BotWorkflowEngine(
         logger.LogInformation("Proactively merging {TargetBranch} into {SourceBranch} to trigger conflicts...",
             context.TargetBranch, context.SourceBranch);
 
-        // 1. 获取最新代码
-        await commandService.RunCommandAsync("git", $"fetch origin {context.TargetBranch}", context.WorkspacePath,
-            TimeSpan.FromSeconds(30));
+        if (string.IsNullOrWhiteSpace(context.TargetRepositoryCloneUrl))
+        {
+            throw new InvalidOperationException("Target repository clone URL is required to resolve merge conflicts.");
+        }
+
+        // Fetch the target branch from the MR's actual target project. For fork MRs,
+        // origin points at the fork and may have a stale default branch.
+        var targetRef = $"refs/remotes/agentbot-target/{context.TargetBranch}";
+        var basicAuth = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+            $"{context.Server.UserName}:{context.Server.Token}"));
+        var gitAuthEnvironment = new Dictionary<string, string?>
+        {
+            ["GIT_CONFIG_COUNT"] = "1",
+            ["GIT_CONFIG_KEY_0"] = "http.extraHeader",
+            ["GIT_CONFIG_VALUE_0"] = $"Authorization: Basic {basicAuth}"
+        };
+
+        var (fetchExitCode, fetchOutput, fetchError) = await commandService.RunCommandAsync(
+            "git",
+            $"fetch --no-tags {context.TargetRepositoryCloneUrl} +refs/heads/{context.TargetBranch}:{targetRef}",
+            context.WorkspacePath,
+            TimeSpan.FromSeconds(60),
+            environmentVariables: gitAuthEnvironment);
+        if (fetchExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to fetch the actual target branch. Output: {fetchOutput}. Error: {fetchError}");
+        }
 
         // 2. 确保是 Merge 行为，不是 Rebase
         await commandService.RunCommandAsync("git", "config pull.rebase false", context.WorkspacePath,
@@ -128,7 +158,7 @@ public class BotWorkflowEngine(
 
         // 4. 执行合并
         // 注意：这里我们允许非0退出码，因为冲突就是非0
-        var (exitCode, output, _) = await commandService.RunCommandAsync("git", $"merge origin/{context.TargetBranch}",
+        var (exitCode, output, _) = await commandService.RunCommandAsync("git", $"merge {targetRef}",
             context.WorkspacePath, TimeSpan.FromSeconds(30));
 
         if (exitCode != 0)
@@ -155,6 +185,37 @@ public class BotWorkflowEngine(
         {
             logger.LogInformation("Merge was successful without conflicts.");
         }
+    }
+
+    private async Task ValidateConflictResolutionAsync(WorkflowContext context)
+    {
+        var targetRef = $"refs/remotes/agentbot-target/{context.TargetBranch}";
+
+        var (unmergedExitCode, unmergedFiles, unmergedError) = await commandService.RunCommandAsync(
+            "git", "diff --name-only --diff-filter=U", context.WorkspacePath, TimeSpan.FromSeconds(10));
+        if (unmergedExitCode != 0 || !string.IsNullOrWhiteSpace(unmergedFiles))
+        {
+            throw new InvalidOperationException(
+                $"Conflict resolution is incomplete. Unmerged files: {unmergedFiles}. Error: {unmergedError}");
+        }
+
+        var (mergeHeadExitCode, _, _) = await commandService.RunCommandAsync(
+            "git", "rev-parse -q --verify MERGE_HEAD", context.WorkspacePath, TimeSpan.FromSeconds(10));
+        if (mergeHeadExitCode == 0)
+        {
+            throw new InvalidOperationException("Conflict resolution is incomplete because a merge is still in progress.");
+        }
+
+        var (ancestorExitCode, _, ancestorError) = await commandService.RunCommandAsync(
+            "git", $"merge-base --is-ancestor {targetRef} HEAD", context.WorkspacePath, TimeSpan.FromSeconds(10));
+        if (ancestorExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Resolved branch does not contain the actual target branch tip. Error: {ancestorError}");
+        }
+
+        logger.LogInformation(
+            "Conflict resolution verified: no unmerged files and {TargetRef} is an ancestor of HEAD.", targetRef);
     }
 
     private async Task RunAi(WorkflowContext context)

@@ -12,6 +12,7 @@ public class WorkflowContext
     public required string ProjectId { get; init; }
     public required string SourceBranch { get; init; }
     public required string TargetBranch { get; init; }
+    public string TargetRepositoryCloneUrl { get; init; } = string.Empty;
     public required string WorkspaceName { get; init; }
     public string Prompt { get; set; } = string.Empty;
     public string CommitMessage { get; set; } = string.Empty;

@@ -10,6 +10,7 @@ public class MRToProcess
     public bool HasNewHumanReview { get; init; }
     public bool PipelineFailed { get; init; }
     public string TargetBranch { get; init; } = "main";
+    public string TargetRepositoryCloneUrl { get; init; } = string.Empty;
     public string? AuthorName { get; init; }
     public string? Discussions { get; init; }
     public DateTime LastBotCommitTime { get; init; }

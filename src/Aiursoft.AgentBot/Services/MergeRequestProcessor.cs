@@ -125,6 +125,7 @@ public class MergeRequestProcessor(
                     HasNewHumanReview = hasNewHumanReview,
                     PipelineFailed = pipelineFailed,
                     TargetBranch = targetBranch,
+                    TargetRepositoryCloneUrl = repository.CloneUrl ?? string.Empty,
                     AuthorName = authorName,
                     Discussions = discussions,
                     LastBotCommitTime = lastBotCommitTime
@@ -191,6 +192,7 @@ public class MergeRequestProcessor(
                 ProjectId = pipelineProjectId.ToString(),
                 SourceBranch = branchName,
                 TargetBranch = item.TargetBranch,
+                TargetRepositoryCloneUrl = item.TargetRepositoryCloneUrl,
                 WorkspaceName = $"mr-{mr.IID}",
                 Prompt = prompt,
                 CommitMessage = commitMessage,
