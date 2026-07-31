@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/ubuntu
+FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
 
 # Set environment variables to ensure Python runs in unbuffered mode and pip does not cache packages or break system packages.
 ENV PYTHONUNBUFFERED=1 \
