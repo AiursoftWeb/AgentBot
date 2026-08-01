@@ -32,7 +32,8 @@ public class IssueProcessorTests
         var options = new AgentBotOptions
         {
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotTests"),
-            ForkWaitDelayMs = 0
+            ForkWaitDelayMs = 0,
+            PlanningModeEnabled = false
         };
         _options = Options.Create(options);
 
@@ -169,7 +170,20 @@ public class IssueProcessorTests
             _options,
             _workflowLoggerMock.Object);
 
-        _issueProcessor = new IssueProcessor(_versionControlMock.Object, workflowEngine, _httpWrapper, _options, _loggerMock.Object);
+        var planningService = new IssuePlanningService(
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            _httpWrapper,
+            new HttpClient(handler),
+            _options,
+            new Mock<ILogger<IssuePlanningService>>().Object);
+        _issueProcessor = new IssueProcessor(
+            _versionControlMock.Object,
+            workflowEngine,
+            planningService,
+            _httpWrapper,
+            _options,
+            _loggerMock.Object);
 
         // Act
         await _issueProcessor.ProcessAsync(issue, server);

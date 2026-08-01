@@ -68,4 +68,10 @@ public class AgentBotOptions
     /// Leave empty to skip reviewer assignment.
     /// </summary>
     public string? Reviewer { get; set; }
+
+    /// <summary>
+    /// Require GitLab issues to converge on an approved plan before implementation.
+    /// The first implementation is enforced for Codex, whose CLI provides a read-only sandbox.
+    /// </summary>
+    public bool PlanningModeEnabled { get; set; } = true;
 }

@@ -54,6 +54,7 @@ static IHostBuilder CreateHostBuilder(string[] args)
             services.AddTransient<WorkspaceManager>();
             services.AddTransient<CommandService>();
             services.AddTransient<IssueProcessor>();
+            services.AddTransient<IssuePlanningService>();
             services.AddTransient<MergeRequestProcessor>();
             services.AddTransient<MergeRequestReviewerProcessor>();
             services.AddTransient<PipelineProcessor>();

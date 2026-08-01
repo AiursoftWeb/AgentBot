@@ -19,6 +19,9 @@ public class GitLabDiscussion
 
 public class GitLabNote
 {
+    [JsonPropertyName("id")]
+    public long Id { get; set; }
+
     [JsonPropertyName("body")]
     public string Body { get; set; } = string.Empty;
 
@@ -75,6 +78,9 @@ public class GitLabIssueDto
 
     [JsonPropertyName("state")]
     public string State { get; set; } = string.Empty;
+
+    [JsonPropertyName("author")]
+    public GitLabUser Author { get; set; } = new();
 }
 
 public class GitLabProjectDto

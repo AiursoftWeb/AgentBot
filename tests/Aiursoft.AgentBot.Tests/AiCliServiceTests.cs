@@ -18,7 +18,7 @@ public class AiCliServiceTests
         StringAssert.Contains(
             arg,
             "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file");
-        StringAssert.Contains(arg, " - < .ai-task.txt");
+        StringAssert.Contains(arg, " - < '/tmp/agentbot-");
         Assert.IsFalse(arg.Contains(" --model ", StringComparison.Ordinal));
         Assert.IsNull(environmentVariables);
     }
@@ -28,12 +28,24 @@ public class AiCliServiceTests
     {
         var (arg, environmentVariables) = await InvokeCodexAsync(model: "custom-codex-model");
 
-        StringAssert.Contains(arg, " --model custom-codex-model - < .ai-task.txt");
+        StringAssert.Contains(arg, " --model custom-codex-model - < '/tmp/agentbot-");
+        Assert.IsNull(environmentVariables);
+    }
+
+    [TestMethod]
+    public async Task InvokePlanningCliAsync_WithCodex_EnforcesReadOnlySandbox()
+    {
+        var (arg, environmentVariables) = await InvokeCodexAsync(model: null, planningOnly: true);
+
+        StringAssert.Contains(arg, "codex exec --sandbox read-only");
+        Assert.IsFalse(arg.Contains("--dangerously-bypass-approvals-and-sandbox", StringComparison.Ordinal));
+        StringAssert.Contains(arg, " --ephemeral ");
         Assert.IsNull(environmentVariables);
     }
 
     private static async Task<(string Arg, IDictionary<string, string?>? EnvironmentVariables)> InvokeCodexAsync(
-        string? model)
+        string? model,
+        bool planningOnly = false)
     {
         var workPath = Path.Combine(Path.GetTempPath(), $"AgentBotAiCliTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workPath);
@@ -71,7 +83,9 @@ public class AiCliServiceTests
                 options,
                 Mock.Of<ILogger<AiCliService>>());
 
-            var result = await service.InvokeAiCliAsync(workPath, "Implement the requested change.", hideGitFolder: false);
+            var result = planningOnly
+                ? await service.InvokePlanningCliAsync(workPath, "Plan the requested change.")
+                : await service.InvokeAiCliAsync(workPath, "Implement the requested change.", hideGitFolder: false);
 
             Assert.IsTrue(result.Success);
             Assert.IsNotNull(capturedArg);

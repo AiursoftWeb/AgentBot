@@ -67,7 +67,8 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
     "Model": "deepseek-v4-pro",
     "ApiKey": "sk-xxx",
     "ApiEndpoint": "https://api.deepseek.com/anthropic",
-    "Reviewer": "senior-dev"
+    "Reviewer": "senior-dev",
+    "PlanningModeEnabled": true
   }
 }
 ```
@@ -83,6 +84,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
 | `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
+| `PlanningModeEnabled` | `AgentBot__PlanningModeEnabled` | No | For Codex + GitLab issues, require an approved plan before implementation (default: `true`) |
 | `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea` |
 | `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
 | `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
@@ -99,6 +101,7 @@ AgentBot__WorkspaceFolder=/workspace
 AgentBot__Model=gemini-3.1-pro-preview
 AgentBot__ApiKey=AIza...
 AgentBot__Reviewer=senior-dev
+AgentBot__PlanningModeEnabled=true
 Servers__0__Provider=GitLab
 Servers__0__EndPoint=https://gitlab.aiursoft.com
 Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
@@ -108,6 +111,14 @@ Servers__0__UserEmail=gemini@aiursoft.com
 Servers__0__ContributionBranch=users/gemini/auto-fix-issue
 Servers__0__Token=glpat-...
 ```
+
+### GitLab issue planning and approval
+
+With Codex and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker runs in Codex's `read-only` sandbox and cannot edit the checkout, commit, push, or open a merge request.
+
+The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
+
+After approval, AgentBot starts a separate write-enabled implementation workflow using the approved plan as locked scope. Automatically generated pipeline-recovery issues bypass planning to avoid an unattended approval deadlock. Planning mode currently applies only to Codex on GitLab; other engines and providers retain the existing immediate implementation workflow.
 
 ## Installation
 
