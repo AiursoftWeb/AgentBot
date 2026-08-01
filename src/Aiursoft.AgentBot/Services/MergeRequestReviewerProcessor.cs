@@ -110,12 +110,12 @@ public class MergeRequestReviewerProcessor(
         {
             // Get last commit time
             var commitsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/commits";
-            var commits = await httpWrapper.SendHttpAndGetJson<List<GitLabCommit>>(commitsUrl, HttpMethod.Get, server.Token);
+            var commits = await GitLabPagination.GetAllAsync<GitLabCommit>(httpWrapper, commitsUrl, server.Token);
             var lastCommitTime = commits.Select(c => c.Created_at).DefaultIfEmpty(DateTime.MinValue).Max();
 
             // Get discussions to find last bot review
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
-            var discussions = await httpWrapper.SendHttpAndGetJson<List<GitLabDiscussion>>(discussionsUrl, HttpMethod.Get, server.Token);
+            var discussions = await GitLabPagination.GetAllAsync<GitLabDiscussion>(httpWrapper, discussionsUrl, server.Token);
 
             var sb = new StringBuilder();
             var lastBotReviewTime = DateTime.MinValue;

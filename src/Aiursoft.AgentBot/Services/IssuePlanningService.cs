@@ -211,7 +211,7 @@ public partial class IssuePlanningService(
     private async Task<List<GitLabNote>> GetNotesAsync(Issue issue, Server server)
     {
         var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes?sort=asc&order_by=created_at";
-        return await httpWrapper.SendHttpAndGetJson<List<GitLabNote>>(url, HttpMethod.Get, server.Token);
+        return await GitLabPagination.GetAllAsync<GitLabNote>(httpWrapper, url, server.Token);
     }
 
     private async Task PostCommentAsync(Issue issue, Server server, string body)

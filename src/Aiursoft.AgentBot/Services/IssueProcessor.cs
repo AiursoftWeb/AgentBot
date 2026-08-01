@@ -160,7 +160,7 @@ public class IssueProcessor(
         try
         {
             var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes?sort=asc&order_by=created_at";
-            var notes = await httpWrapper.SendHttpAndGetJson<List<GitLabNote>>(url, HttpMethod.Get, server.Token);
+            var notes = await GitLabPagination.GetAllAsync<GitLabNote>(httpWrapper, url, server.Token);
 
             var comments = notes
                 .Where(n => !n.System)
