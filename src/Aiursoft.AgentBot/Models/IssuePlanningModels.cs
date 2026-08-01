@@ -28,7 +28,7 @@ public sealed class IssuePlannerResponse
             : IssuePlanningDecision.ContinueDiscussion;
 }
 
-public sealed record IssuePlanState(int Version, long NoteId, DateTime CreatedAt, string Markdown);
+public sealed record IssuePlanState(int Version, long NoteId, string Markdown);
 
 public sealed record IssuePlanningOutcome(bool Approved, string? ApprovedPlan, string Message)
 {

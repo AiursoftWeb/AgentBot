@@ -124,7 +124,7 @@ public class IssuePlanningServiceTests
             }
 
             var formBody = await req.Content!.ReadAsStringAsync();
-            postedComments.Add(Uri.UnescapeDataString(formBody.Split("body=", 2, StringSplitOptions.None)[1].Replace('+', ' ')));
+            postedComments.Add(Uri.UnescapeDataString(formBody.Split("body=", 2)[1].Replace('+', ' ')));
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(new GitLabNote()))

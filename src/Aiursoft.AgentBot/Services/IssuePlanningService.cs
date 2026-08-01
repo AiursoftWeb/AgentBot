@@ -184,7 +184,7 @@ public partial class IssuePlanningService(
             }
 
             var markdown = note.Body[..match.Index].Trim();
-            return new IssuePlanState(version, note.Id, note.Created_at, markdown);
+            return new IssuePlanState(version, note.Id, markdown);
         }
 
         return null;
@@ -217,10 +217,8 @@ public partial class IssuePlanningService(
     private async Task PostCommentAsync(Issue issue, Server server, string body)
     {
         var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes";
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["body"] = body })
-        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["body"] = body });
         request.Headers.Add("PRIVATE-TOKEN", server.Token);
         using var response = await httpClient.SendAsync(request);
         response.EnsureSuccessStatusCode();
