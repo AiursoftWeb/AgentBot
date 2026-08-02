@@ -175,6 +175,7 @@ public class IssueProcessorTests
             _aiCliServiceMock.Object,
             _httpWrapper,
             new HttpClient(handler),
+            new PlanningRepositoryReader(Mock.Of<ILogger<PlanningRepositoryReader>>()),
             _options,
             new Mock<ILogger<IssuePlanningService>>().Object);
         _issueProcessor = new IssueProcessor(
