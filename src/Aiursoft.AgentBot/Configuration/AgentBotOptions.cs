@@ -79,7 +79,7 @@ public class AgentBotOptions
 
     /// <summary>
     /// Require GitLab issues to converge on an approved plan before implementation.
-    /// The first implementation is enforced for Codex, whose CLI provides a read-only sandbox.
+    /// Planning behavior is enforced through the Codex prompt; process isolation is provided by the outer container.
     /// </summary>
     public bool PlanningModeEnabled { get; set; } = true;
 }

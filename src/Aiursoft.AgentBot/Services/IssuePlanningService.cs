@@ -104,7 +104,7 @@ public partial class IssuePlanningService(
         var (success, output, error) = await aiCliService.InvokePlanningCliAsync(workspacePath, prompt);
         if (!success)
         {
-            throw new InvalidOperationException($"Read-only planner failed. Output: {output}. Error: {error}");
+            throw new InvalidOperationException($"Planning worker failed. Output: {output}. Error: {error}");
         }
 
         return ParsePlannerResponse(output);
@@ -121,7 +121,7 @@ public partial class IssuePlanningService(
             .Select(n => $"Note {n.Id} by @{n.Author.Username} at {n.Created_at:O}:\n{n.Body}");
 
         return $$"""
-            You are AgentBot's read-only planning worker for GitLab Issue #{{issue.Iid}}: {{issue.Title}}
+            You are AgentBot's planning worker for GitLab Issue #{{issue.Iid}}: {{issue.Title}}
 
             Issue description:
             {{issue.Description ?? "No description provided."}}

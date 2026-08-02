@@ -24,7 +24,7 @@ public class AiCliService(
         if (_options.Engine != AiEngine.Codex)
         {
             throw new NotSupportedException(
-                $"Read-only planning is currently enforced only for Codex, not {_options.Engine}.");
+                $"Planning mode is currently supported only for Codex, not {_options.Engine}.");
         }
 
         return await InvokeAiCliInternalAsync(workPath, taskDescription, hideGitFolder: false, planningOnly: true);
@@ -130,7 +130,7 @@ public class AiCliService(
 
             AiEngine.Codex => (
                 planningOnly
-                    ? $"codex exec --sandbox read-only --ignore-user-config --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}"
+                    ? $"codex exec --dangerously-bypass-approvals-and-sandbox --ignore-user-config --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}"
                     : $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}",
                 null),
 

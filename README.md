@@ -114,7 +114,7 @@ Servers__0__Token=glpat-...
 
 ### GitLab issue planning and approval
 
-With Codex and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker runs in Codex's `read-only` sandbox and cannot edit the checkout, commit, push, or open a merge request.
+With Codex and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs without Codex's inner sandbox because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
 
 The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
 
