@@ -6,6 +6,12 @@ public enum AiEngine
     Codex
 }
 
+public enum ReplyLanguage
+{
+    En,
+    Zh
+}
+
 /// <summary>
 /// Configuration options for the Agent Bot.
 /// </summary>
@@ -23,6 +29,22 @@ public class AgentBotOptions
     /// The AI engine backend to use: "Claude" or "Codex".
     /// </summary>
     public AiEngine Engine { get; set; } = AiEngine.Codex;
+
+    /// <summary>
+    /// Preferred language for user-facing Issue and merge request content.
+    /// </summary>
+    public ReplyLanguage ReplyLanguage { get; set; } = global::Aiursoft.AgentBot.Configuration.ReplyLanguage.En;
+
+    public static ReplyLanguage ParseReplyLanguage(string? configuredLanguage)
+    {
+        return configuredLanguage?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "en" => global::Aiursoft.AgentBot.Configuration.ReplyLanguage.En,
+            "zh" => global::Aiursoft.AgentBot.Configuration.ReplyLanguage.Zh,
+            _ => throw new InvalidOperationException(
+                $"BOT_REPLY_LANGUAGE must be either 'en' or 'zh', but was '{configuredLanguage}'.")
+        };
+    }
 
     public static void RejectRemovedEngine(string? configuredEngine)
     {

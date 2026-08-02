@@ -215,6 +215,33 @@ public class IssuePlanningServiceTests
     }
 
     [TestMethod]
+    public async Task ProcessAsync_ChinesePreferenceLocalizesPlanTemplateAndPrompt()
+    {
+        var notes = ExistingPlanWith(new GitLabNote
+        {
+            Id = 22,
+            Body = "使用 180 天保留期。",
+            Author = new GitLabUser { Username = "issue-owner" },
+            Created_at = Utc(12)
+        });
+        var fixture = CreateFixture(
+            notes,
+            "publish_plan",
+            planMarkdown: "旧链接保留 180 天。",
+            responseMarkdown: "已按你的决定更新。",
+            replyLanguage: ReplyLanguage.Zh);
+
+        await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
+
+        StringAssert.Contains(fixture.PostedComments[0], "## Agent 计划 v2");
+        StringAssert.Contains(fixture.PostedComments[0], "等待批准");
+        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt => prompt.Contains("Simplified Chinese", StringComparison.Ordinal))),
+            Times.Once);
+    }
+
+    [TestMethod]
     public async Task ProcessAsync_InitialBlockingQuestionUsesVersionZeroWatermark()
     {
         var notes = new List<GitLabNote>();
@@ -262,7 +289,12 @@ public class IssuePlanningServiceTests
         };
         var issue = new Issue { Iid = 49, Title = "Feature", Description = "Details" };
 
-        var prompt = IssuePlanningService.BuildPlannerPrompt(issue, currentPlan, notes, [notes[2]]);
+        var prompt = IssuePlanningService.BuildPlannerPrompt(
+            issue,
+            currentPlan,
+            notes,
+            [notes[2]],
+            ReplyLanguage.En);
 
         Assert.AreEqual(1, CountOccurrences(prompt, canonicalPlan));
         Assert.IsFalse(prompt.Contains("OBSOLETE-PLAN-V1", StringComparison.Ordinal));
@@ -333,7 +365,8 @@ public class IssuePlanningServiceTests
         string action,
         long? approvalNoteId = null,
         string? planMarkdown = "Implement the safe change and test it.",
-        string responseMarkdown = "Ready for approval.")
+        string responseMarkdown = "Ready for approval.",
+        ReplyLanguage replyLanguage = ReplyLanguage.En)
     {
         var postedComments = new List<string>();
         var handler = new FakeHttpMessageHandler(async req =>
@@ -359,7 +392,8 @@ public class IssuePlanningServiceTests
         {
             Engine = AiEngine.Codex,
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotPlanningTests"),
-            Reviewer = "trusted-reviewer"
+            Reviewer = "trusted-reviewer",
+            ReplyLanguage = replyLanguage
         });
         var workspace = new Mock<IAiWorkspaceManager>();
         var command = new Mock<IAiCommandService>();

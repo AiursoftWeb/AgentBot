@@ -33,7 +33,8 @@ public class IssueProcessorTests
         {
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotTests"),
             ForkWaitDelayMs = 0,
-            PlanningModeEnabled = false
+            PlanningModeEnabled = false,
+            ReplyLanguage = ReplyLanguage.Zh
         };
         _options = Options.Create(options);
 
@@ -196,6 +197,7 @@ public class IssueProcessorTests
                 prompt.Contains("First comment") &&
                 prompt.Contains("Comment by @user2") &&
                 prompt.Contains("Second comment") &&
+                prompt.Contains("Simplified Chinese") &&
                 !prompt.Contains("System note")), // System notes should be filtered
             It.IsAny<bool>()), Times.Once);
     }

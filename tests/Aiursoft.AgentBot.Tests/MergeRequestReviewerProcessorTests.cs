@@ -35,7 +35,8 @@ public class MergeRequestReviewerProcessorTests
         var options = new AgentBotOptions
         {
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotReviewTests"),
-            ForkWaitDelayMs = 0
+            ForkWaitDelayMs = 0,
+            ReplyLanguage = ReplyLanguage.Zh
         };
         _options = Options.Create(options);
 
@@ -159,6 +160,7 @@ public class MergeRequestReviewerProcessorTests
             workflowEngine,
             _httpWrapper,
             _httpClientFactoryMock.Object,
+            _options,
             _loggerMock.Object);
 
         // Act
@@ -166,6 +168,9 @@ public class MergeRequestReviewerProcessorTests
 
         // Assert
         Assert.IsTrue(result.Success);
-        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.Is<string>(s => s.Contains("code reviewer")), It.IsAny<bool>()), Times.Once);
+        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(s => s.Contains("code reviewer") && s.Contains("Simplified Chinese")),
+            It.IsAny<bool>()), Times.Once);
     }
 }

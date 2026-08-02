@@ -63,6 +63,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
   ],
   "AgentBot": {
     "Engine": "Claude",
+    "ReplyLanguage": "En",
     "Model": "deepseek-v4-pro",
     "ApiKey": "sk-xxx",
     "ApiEndpoint": "https://api.deepseek.com/anthropic",
@@ -77,6 +78,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | Key | Env var | Required | Description |
 |-----|---------|----------|-------------|
 | `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default) or `Claude` |
+| `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
 | `Model` | `AgentBot__Model` | No | Optional model name passed to the selected CLI with `--model` |
 | `ApiKey` | `AgentBot__ApiKey` | Claude only | API key for the AI provider; not used by Codex |
 | `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
@@ -98,6 +100,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 ```
 AgentBot__WorkspaceFolder=/workspace
 AgentBot__Engine=Claude
+BOT_REPLY_LANGUAGE=zh
 AgentBot__Model=deepseek-v4-pro
 AgentBot__ApiKey=sk-xxx
 AgentBot__Reviewer=senior-dev
@@ -117,6 +120,8 @@ Servers__0__Token=glpat-...
 With Codex and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs without Codex's inner sandbox because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
 
 Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to Codex once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
+
+Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; any value other than `en` or `zh` stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
 
 The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
 
@@ -162,6 +167,7 @@ docker volume create agent-bot-codex-home
 docker run -d \
   --name agent-bot \
   -e AgentBot__Engine=Codex \
+  -e BOT_REPLY_LANGUAGE=zh \
   -e AgentBot__Model=your-model-name \
   -e AgentBot__WorkspaceFolder=/workspace \
   -e Servers__0__Provider=GitLab \
@@ -196,6 +202,7 @@ The device login prints a URL and one-time code. Open the URL in a browser, sign
 docker run -d \
   --name agent-bot \
   -e AgentBot__Engine=Claude \
+  -e BOT_REPLY_LANGUAGE=zh \
   -e AgentBot__Model=deepseek-v4-pro \
   -e AgentBot__ApiKey=sk-xxx \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \
@@ -221,6 +228,7 @@ services:
     restart: unless-stopped
     environment:
       AgentBot__Engine: Claude
+      BOT_REPLY_LANGUAGE: zh
       AgentBot__Model: deepseek-v4-pro
       AgentBot__ApiKey: sk-xxx
       AgentBot__ApiEndpoint: https://api.deepseek.com/anthropic
@@ -261,6 +269,8 @@ spec:
               env:
                 - name: AgentBot__Engine
                   value: Claude
+                - name: BOT_REPLY_LANGUAGE
+                  value: zh
                 - name: AgentBot__Model
                   value: deepseek-v4-pro
                 - name: AgentBot__ApiKey
@@ -320,6 +330,7 @@ docker service create \
   --name agent-bot \
   --restart-condition any \
   -e AgentBot__Engine=Claude \
+  -e BOT_REPLY_LANGUAGE=zh \
   -e AgentBot__Model=deepseek-v4-pro \
   -e AgentBot__ApiKey=sk-xxx \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \

@@ -1,9 +1,11 @@
+using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services;
 using Aiursoft.NugetNinja.GitServerBase.Models.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -18,8 +20,11 @@ public class MergeRequestReviewerProcessor(
     BotWorkflowEngine workflowEngine,
     HttpWrapper httpWrapper,
     IHttpClientFactory httpClientFactory,
+    IOptions<AgentBotOptions> options,
     ILogger<MergeRequestReviewerProcessor> logger)
 {
+    private readonly AgentBotOptions _options = options.Value;
+
     public async Task<ProcessResult> ProcessReviewRequestsAsync(Server server)
     {
         if (server.Provider != "GitLab")
@@ -203,6 +208,8 @@ Target Branch: {item.TargetBranch}
 
 Recent discussions:
 {item.Discussions ?? "No discussions found."}
+
+{ReplyLanguageText.PromptInstruction(_options.ReplyLanguage)}
 
 Your task:
 1. Analyze the changes in the current codebase compared to the target branch.

@@ -118,6 +118,7 @@ public class MergeRequestProcessorTests
     public async Task ProcessMergeRequestsAsync_OthersMr_ForksAndCreatesNewMr()
     {
         // Arrange
+        _options.Value.ReplyLanguage = ReplyLanguage.Zh;
         var server = new Server
         {
             Provider = "GitLab",
@@ -234,9 +235,13 @@ public class MergeRequestProcessorTests
             It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<string>(),
-            It.IsAny<string>(),
-            It.IsAny<string>(),
+            It.Is<string>(title => title.Contains("[Bot 修复]", StringComparison.Ordinal)),
+            It.Is<string>(body => body.Contains("## 修改内容", StringComparison.Ordinal)),
             It.IsAny<string>()), Times.Once);
+        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt => prompt.Contains("Simplified Chinese", StringComparison.Ordinal)),
+            It.IsAny<bool>()), Times.Once);
     }
 
     [TestMethod]

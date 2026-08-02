@@ -40,10 +40,13 @@ static IHostBuilder CreateHostBuilder(string[] args)
         .ConfigureServices((context, services) =>
         {
             AgentBotOptions.RejectRemovedEngine(context.Configuration["AgentBot:Engine"]);
+            var replyLanguage = AgentBotOptions.ParseReplyLanguage(
+                context.Configuration["BOT_REPLY_LANGUAGE"] ?? context.Configuration["AgentBot:ReplyLanguage"]);
             services.AddMemoryCache();
             services.AddHttpClient();
             services.Configure<List<Server>>(context.Configuration.GetSection("Servers"));
             services.Configure<AgentBotOptions>(context.Configuration.GetSection("AgentBot"));
+            services.PostConfigure<AgentBotOptions>(options => options.ReplyLanguage = replyLanguage);
             services.AddGitRunner();
             services.AddTransient<IVersionControlService, GitHubService>();
             services.AddTransient<IVersionControlService, GiteaService>();
