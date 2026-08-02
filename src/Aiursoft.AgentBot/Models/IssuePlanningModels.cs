@@ -2,33 +2,39 @@ using System.Text.Json.Serialization;
 
 namespace Aiursoft.AgentBot.Models;
 
-public enum IssuePlanningDecision
+public enum IssuePlanningAction
 {
-    ContinueDiscussion,
+    Respond,
+    PublishPlan,
     ApprovalCandidate
 }
 
 public sealed class IssuePlannerResponse
 {
-    [JsonPropertyName("decision")]
-    public string Decision { get; set; } = string.Empty;
+    [JsonPropertyName("action")]
+    public string? Action { get; set; }
 
     [JsonPropertyName("approval_note_id")]
     public long? ApprovalNoteId { get; set; }
 
     [JsonPropertyName("plan_markdown")]
-    public string PlanMarkdown { get; set; } = string.Empty;
+    public string? PlanMarkdown { get; set; }
 
     [JsonPropertyName("response_markdown")]
     public string ResponseMarkdown { get; set; } = string.Empty;
 
-    public IssuePlanningDecision ParsedDecision =>
-        string.Equals(Decision, "approval_candidate", StringComparison.OrdinalIgnoreCase)
-            ? IssuePlanningDecision.ApprovalCandidate
-            : IssuePlanningDecision.ContinueDiscussion;
+    public IssuePlanningAction ParsedAction => (Action ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "respond" => IssuePlanningAction.Respond,
+        "publish_plan" => IssuePlanningAction.PublishPlan,
+        "approve_current_plan" => IssuePlanningAction.ApprovalCandidate,
+        _ => throw new InvalidOperationException($"Planner returned an unsupported action: '{Action}'.")
+    };
 }
 
 public sealed record IssuePlanState(int Version, long NoteId, string Markdown);
+
+public sealed record IssueDiscussionState(int PlanVersion, long ThroughNoteId);
 
 public sealed record IssuePlanningOutcome(bool Approved, string? ApprovedPlan, string Message)
 {
