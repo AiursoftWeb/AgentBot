@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 namespace Aiursoft.AgentBot.Services;
 
 public sealed record PlanningRepositorySnapshot(
-    string RootPath,
     IReadOnlyList<string> Files,
     IReadOnlyDictionary<string, string> TextFiles,
     int TotalBytes);
@@ -19,6 +18,12 @@ public sealed class PlanningRepositoryReader(ILogger<PlanningRepositoryReader> l
     private static readonly HashSet<string> SensitiveNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ".env", "auth.json", "credentials", "credentials.json", "id_rsa", "id_ed25519"
+    };
+
+    private static readonly HashSet<string> IgnoredDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", ".next", ".nuxt", ".venv", "bin", "coverage", "dist", "node_modules", "obj",
+        "out", "packages", "target", "vendor", "venv"
     };
 
     public async Task<PlanningRepositorySnapshot> ReadAsync(string repositoryRoot)
@@ -38,8 +43,20 @@ public sealed class PlanningRepositoryReader(ILogger<PlanningRepositoryReader> l
             foreach (var candidate in EnumerateSafeFiles(root))
             {
                 var relativePath = Path.GetRelativePath(root, candidate).Replace(Path.DirectorySeparatorChar, '/');
-                if (relativePath.StartsWith(".git/", StringComparison.Ordinal) ||
-                    relativePath.Split('/').Any(part => part is "bin" or "obj" or "node_modules"))
+                if (IsSensitive(relativePath))
+                {
+                    continue;
+                }
+
+                var safePath = ResolveSafeFile(root, relativePath);
+                var info = new FileInfo(safePath);
+                if (info.Length > MaxFileBytes)
+                {
+                    continue;
+                }
+
+                var bytes = await File.ReadAllBytesAsync(safePath);
+                if (LooksBinary(bytes))
                 {
                     continue;
                 }
@@ -49,21 +66,8 @@ public sealed class PlanningRepositoryReader(ILogger<PlanningRepositoryReader> l
                     break;
                 }
 
-                var safePath = ResolveSafeFile(root, relativePath);
                 files.Add(relativePath);
-                if (textFiles.Count >= MaxTextFiles || IsSensitive(relativePath))
-                {
-                    continue;
-                }
-
-                var info = new FileInfo(safePath);
-                if (info.Length > MaxFileBytes || totalBytes + info.Length > MaxTotalBytes)
-                {
-                    continue;
-                }
-
-                var bytes = await File.ReadAllBytesAsync(safePath);
-                if (LooksBinary(bytes))
+                if (textFiles.Count >= MaxTextFiles || totalBytes + bytes.Length > MaxTotalBytes)
                 {
                     continue;
                 }
@@ -80,8 +84,8 @@ public sealed class PlanningRepositoryReader(ILogger<PlanningRepositoryReader> l
 
             logger.LogInformation(
                 "Planning repository preflight succeeded. IsolationBackend={IsolationBackend}, MountMode={MountMode}, Files={FileCount}, TextFiles={TextFileCount}, Bytes={ByteCount}",
-                "restricted-context-no-shell", "application-read-only", files.Count, textFiles.Count, totalBytes);
-            return new PlanningRepositorySnapshot(root, files, textFiles, totalBytes);
+                "bounded-snapshot-reader", "application-read-only", files.Count, textFiles.Count, totalBytes);
+            return new PlanningRepositorySnapshot(files, textFiles, totalBytes);
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -113,7 +117,7 @@ public sealed class PlanningRepositoryReader(ILogger<PlanningRepositoryReader> l
                 if ((attributes & FileAttributes.Directory) != 0)
                 {
                     var name = Path.GetFileName(entry);
-                    if (name is not ".git" and not "bin" and not "obj" and not "node_modules")
+                    if (!IgnoredDirectoryNames.Contains(name))
                     {
                         pending.Enqueue(entry);
                     }

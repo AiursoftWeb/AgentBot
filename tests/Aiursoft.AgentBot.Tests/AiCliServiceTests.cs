@@ -50,13 +50,13 @@ public class AiCliServiceTests
     }
 
     [TestMethod]
-    public async Task InvokePlanningCliAsync_WithCodex_DisablesExecutionToolsWithoutNamespaceSandbox()
+    public async Task InvokePlanningCliAsync_WithCodex_UsesReadOnlySandboxAndAllowsInspectionTools()
     {
         var (arg, environmentVariables) = await InvokeCodexAsync(model: null, planningOnly: true);
 
-        StringAssert.Contains(arg, "codex exec --dangerously-bypass-approvals-and-sandbox");
-        StringAssert.Contains(arg, "--ignore-user-config --disable shell_tool --disable unified_exec --disable code_mode_host");
-        Assert.IsFalse(arg.Contains("--sandbox read-only", StringComparison.Ordinal));
+        StringAssert.Contains(arg, "codex exec --sandbox read-only --ignore-user-config");
+        Assert.IsFalse(arg.Contains("--dangerously-bypass-approvals-and-sandbox", StringComparison.Ordinal));
+        Assert.IsFalse(arg.Contains("--disable shell_tool", StringComparison.Ordinal));
         StringAssert.Contains(arg, " --ephemeral ");
         Assert.IsNull(environmentVariables);
     }

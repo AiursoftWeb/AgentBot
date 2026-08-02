@@ -57,6 +57,26 @@ public class PlanningRepositoryReaderTests
         StringAssert.Contains(exception.Message, "[repository_missing]");
     }
 
+    [TestMethod]
+    public async Task ReadAsync_LargeGeneratedDirectoryDoesNotStarveSourceFiles()
+    {
+        var root = CreateDirectory();
+        var generated = Directory.CreateDirectory(Path.Combine(root, "dist")).FullName;
+        for (var i = 0; i < PlanningRepositoryReader.MaxFiles + 1; i++)
+        {
+            await File.WriteAllTextAsync(Path.Combine(generated, $"generated-{i:D4}.js"), "generated");
+        }
+
+        var source = Directory.CreateDirectory(Path.Combine(root, "src")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(source, "Program.cs"), "public static class Program { }");
+
+        var snapshot = await CreateReader().ReadAsync(root);
+
+        CollectionAssert.Contains(snapshot.Files.ToList(), "src/Program.cs");
+        Assert.AreEqual("public static class Program { }", snapshot.TextFiles["src/Program.cs"]);
+        Assert.IsFalse(snapshot.Files.Any(path => path.StartsWith("dist/", StringComparison.Ordinal)));
+    }
+
     private static PlanningRepositoryReader CreateReader() =>
         new(Mock.Of<ILogger<PlanningRepositoryReader>>());
 
