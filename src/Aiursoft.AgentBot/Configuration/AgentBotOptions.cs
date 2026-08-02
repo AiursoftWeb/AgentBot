@@ -2,7 +2,6 @@ namespace Aiursoft.AgentBot.Configuration;
 
 public enum AiEngine
 {
-    Gemini,
     Claude,
     Codex
 }
@@ -21,9 +20,18 @@ public class AgentBotOptions
     public int ForkWaitDelayMs { get; set; } = 5000;
 
     /// <summary>
-    /// The AI engine backend to use: "Gemini", "Claude", or "Codex".
+    /// The AI engine backend to use: "Claude" or "Codex".
     /// </summary>
-    public AiEngine Engine { get; set; } = AiEngine.Gemini;
+    public AiEngine Engine { get; set; } = AiEngine.Codex;
+
+    public static void RejectRemovedEngine(string? configuredEngine)
+    {
+        if (string.Equals(configuredEngine, "Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new NotSupportedException(
+                "The Gemini AI engine is no longer supported. Configure AgentBot:Engine as Claude or Codex.");
+        }
+    }
 
     /// <summary>
     /// The AI model to use (passed to --model parameter).
@@ -31,7 +39,7 @@ public class AgentBotOptions
     public string? Model { get; set; }
 
     /// <summary>
-    /// API key for the AI provider. Set as provider-specific env var (GEMINI_API_KEY, ANTHROPIC_API_KEY, etc.).
+    /// API key for the AI provider. Set as the provider-specific environment variable (for example, ANTHROPIC_API_KEY).
     /// Codex uses the persisted ChatGPT login under CODEX_HOME instead.
     /// </summary>
     public string? ApiKey { get; set; }

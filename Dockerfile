@@ -31,7 +31,7 @@ RUN pip install PyYAML requests httpx rich python-dotenv
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
-    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @google/gemini-cli @openai/codex --loglevel verbose
+    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex --loglevel verbose
 
 RUN mkdir -p /workspace /logs /home/bot/.codex && chown bot:bot /workspace /logs /home/bot/.codex && \
     printf 'export HOME=/home/bot\n\

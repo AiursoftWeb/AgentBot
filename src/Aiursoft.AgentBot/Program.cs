@@ -39,6 +39,7 @@ static IHostBuilder CreateHostBuilder(string[] args)
         })
         .ConfigureServices((context, services) =>
         {
+            AgentBotOptions.RejectRemovedEngine(context.Configuration["AgentBot:Engine"]);
             services.AddMemoryCache();
             services.AddHttpClient();
             services.Configure<List<Server>>(context.Configuration.GetSection("Servers"));

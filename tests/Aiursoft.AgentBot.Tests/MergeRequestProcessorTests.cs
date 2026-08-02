@@ -613,7 +613,7 @@ public class MergeRequestProcessorTests
             .Setup(v => v.GetPipelineJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
             .ReturnsAsync(new List<PipelineJob>());
 
-        // MOCK GEMINI FAILURE
+        // Mock AI engine failure.
         _aiCliServiceMock
             .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
             .ReturnsAsync((false, "AI failed", "Error message"));
