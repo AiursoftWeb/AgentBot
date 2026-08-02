@@ -132,17 +132,13 @@ public class IssuePlanningServiceTests
         });
         var httpClient = new HttpClient(handler);
         var httpWrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), httpClient);
-        var workspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotPlanningTests");
         var options = Options.Create(new AgentBotOptions
         {
             Engine = AiEngine.Codex,
-            WorkspaceFolder = workspaceFolder,
+            WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotPlanningTests"),
             Reviewer = "trusted-reviewer"
         });
         var workspace = new Mock<IAiWorkspaceManager>();
-        var planningPath = Path.Combine(workspaceFolder, "101-repo-planning-49");
-        Directory.CreateDirectory(planningPath);
-        File.WriteAllText(Path.Combine(planningPath, "README.md"), "Planning fixture repository.");
         var command = new Mock<IAiCommandService>();
         var ai = new Mock<AiCliService>(command.Object, options, Mock.Of<ILogger<AiCliService>>());
         var response = JsonSerializer.Serialize(new
@@ -160,7 +156,6 @@ public class IssuePlanningServiceTests
             ai.Object,
             httpWrapper,
             httpClient,
-            new PlanningRepositoryReader(Mock.Of<ILogger<PlanningRepositoryReader>>()),
             options,
             Mock.Of<ILogger<IssuePlanningService>>());
         var issue = new Issue

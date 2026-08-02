@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Version>10.0.96</Version>
+    <Version>10.0.97</Version>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>agent-bot</AssemblyName>
     <RootNamespace>Aiursoft.AgentBot</RootNamespace>
@@ -28,9 +28,6 @@
     <RepositoryUrl>https://gitlab.aiursoft.com/aiursoft/agentbot</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="Aiursoft.AgentBot.Tests" />
-  </ItemGroup>
   <ItemGroup>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
