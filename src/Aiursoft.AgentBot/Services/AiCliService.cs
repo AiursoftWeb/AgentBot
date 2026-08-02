@@ -124,10 +124,6 @@ public class AiCliService(
 
         return _options.Engine switch
         {
-            AiEngine.Gemini => (
-                $"gemini --yolo{modelArg} < {ShellQuote(taskFile)}",
-                BuildEnv("GEMINI_API_KEY", apiKey)),
-
             AiEngine.Claude => (
                 $"claude --dangerously-skip-permissions --print{modelArg} < {ShellQuote(taskFile)}",
                 BuildClaudeEnv(apiKey)),
@@ -143,12 +139,6 @@ public class AiCliService(
     }
 
     private static string ShellQuote(string value) => $"'{value.Replace("'", "'\"'\"'")}'";
-
-    private static IDictionary<string, string?>? BuildEnv(string key, string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        return new Dictionary<string, string?> { [key] = value };
-    }
 
     private IDictionary<string, string?>? BuildClaudeEnv(string? apiKey)
     {

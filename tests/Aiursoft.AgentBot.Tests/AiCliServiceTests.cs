@@ -11,6 +11,23 @@ namespace Aiursoft.AgentBot.Tests;
 public class AiCliServiceTests
 {
     [TestMethod]
+    public void RejectRemovedEngine_WithLegacyGeminiConfiguration_FailsClearly()
+    {
+        var exception = Assert.ThrowsExactly<NotSupportedException>(
+            () => AgentBotOptions.RejectRemovedEngine("gEmInI"));
+
+        StringAssert.Contains(exception.Message, "no longer supported");
+        StringAssert.Contains(exception.Message, "Claude or Codex");
+    }
+
+    [TestMethod]
+    public void RejectRemovedEngine_WithSupportedEngine_DoesNotThrow()
+    {
+        AgentBotOptions.RejectRemovedEngine("Claude");
+        AgentBotOptions.RejectRemovedEngine("Codex");
+    }
+
+    [TestMethod]
     public async Task InvokeAiCliAsync_WithCodex_UsesYoloModeAndFileLogin()
     {
         var (arg, environmentVariables) = await InvokeCodexAsync(model: null);

@@ -33,7 +33,6 @@ The bot supports multiple AI backends via the `Engine` configuration:
 
 | Engine | CLI | Authentication |
 |--------|-----|----------------|
-| `Gemini` | `gemini --yolo` | API key |
 | `Claude` | `claude --dangerously-skip-permissions --print` | API key |
 | `Codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | ChatGPT device login persisted under `CODEX_HOME` |
 
@@ -57,7 +56,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
       "DisplayName": "Bot",
       "UserName": "agent-bot",
       "UserEmail": "bot@aiursoft.com",
-      "ContributionBranch": "users/gemini/auto-fix-issue",
+      "ContributionBranch": "users/agent/auto-fix-issue",
       "Token": "",
       "OnlyUpdate": false
     }
@@ -77,9 +76,9 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 
 | Key | Env var | Required | Description |
 |-----|---------|----------|-------------|
-| `Engine` | `AgentBot__Engine` | No | AI backend: `Gemini` (default), `Claude`, or `Codex` |
+| `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default) or `Claude` |
 | `Model` | `AgentBot__Model` | No | Optional model name passed to the selected CLI with `--model` |
-| `ApiKey` | `AgentBot__ApiKey` | Gemini/Claude only | API key for the AI provider; not used by Codex |
+| `ApiKey` | `AgentBot__ApiKey` | Claude only | API key for the AI provider; not used by Codex |
 | `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
@@ -98,8 +97,9 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 
 ```
 AgentBot__WorkspaceFolder=/workspace
-AgentBot__Model=gemini-3.1-pro-preview
-AgentBot__ApiKey=AIza...
+AgentBot__Engine=Claude
+AgentBot__Model=deepseek-v4-pro
+AgentBot__ApiKey=sk-xxx
 AgentBot__Reviewer=senior-dev
 AgentBot__PlanningModeEnabled=true
 Servers__0__Provider=GitLab
@@ -107,8 +107,8 @@ Servers__0__EndPoint=https://gitlab.aiursoft.com
 Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
 Servers__0__DisplayName=Agent Bot
 Servers__0__UserName=agent-bot
-Servers__0__UserEmail=gemini@aiursoft.com
-Servers__0__ContributionBranch=users/gemini/auto-fix-issue
+Servers__0__UserEmail=bot@aiursoft.com
+Servers__0__ContributionBranch=users/agent/auto-fix-issue
 Servers__0__Token=glpat-...
 ```
 
@@ -204,7 +204,7 @@ docker run -d \
   -e Servers__0__DisplayName="Bot" \
   -e Servers__0__UserName=agent-bot \
   -e Servers__0__UserEmail=bot@aiursoft.com \
-  -e Servers__0__ContributionBranch=users/gemini/auto-fix-issue \
+  -e Servers__0__ContributionBranch=users/agent/auto-fix-issue \
   -e Servers__0__Token=glpat-xxx \
   hub.aiursoft.com/aiursoft/agentbot
 ```
@@ -229,7 +229,7 @@ services:
       Servers__0__DisplayName: Bot
       Servers__0__UserName: agent-bot
       Servers__0__UserEmail: bot@aiursoft.com
-      Servers__0__ContributionBranch: users/gemini/auto-fix-issue
+      Servers__0__ContributionBranch: users/agent/auto-fix-issue
       Servers__0__Token: glpat-xxx
     volumes:
       - agent-bot-workspace:/workspace
@@ -283,7 +283,7 @@ spec:
                 - name: Servers__0__UserEmail
                   value: bot@aiursoft.com
                 - name: Servers__0__ContributionBranch
-                  value: users/gemini/auto-fix-issue
+                  value: users/agent/auto-fix-issue
                 - name: Servers__0__Token
                   valueFrom:
                     secretKeyRef:
@@ -328,7 +328,7 @@ docker service create \
   -e Servers__0__DisplayName="Bot" \
   -e Servers__0__UserName=agent-bot \
   -e Servers__0__UserEmail=bot@aiursoft.com \
-  -e Servers__0__ContributionBranch=users/gemini/auto-fix-issue \
+  -e Servers__0__ContributionBranch=users/agent/auto-fix-issue \
   -e Servers__0__Token=glpat-xxx \
   hub.aiursoft.com/aiursoft/agentbot
 ```
