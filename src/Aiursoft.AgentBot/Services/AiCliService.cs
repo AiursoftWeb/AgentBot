@@ -130,7 +130,7 @@ public class AiCliService(
 
             AiEngine.Codex => (
                 planningOnly
-                    ? $"codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}"
+                    ? $"codex exec --dangerously-bypass-approvals-and-sandbox --ignore-user-config --disable shell_tool --disable unified_exec --disable code_mode_host --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}"
                     : $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}",
                 null),
 
