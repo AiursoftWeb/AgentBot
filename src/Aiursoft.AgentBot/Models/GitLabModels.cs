@@ -4,6 +4,9 @@ namespace Aiursoft.AgentBot.Models;
 
 public class GitLabCommit
 {
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
     [JsonPropertyName("message")]
     public string Message { get; set; } = string.Empty;
 

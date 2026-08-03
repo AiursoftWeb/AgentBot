@@ -28,6 +28,7 @@ public class MergeRequestReviewerProcessorTests
     private List<GitLabMergeRequestDto> _gitLabMrList = new();
     private List<GitLabCommit> _commitsList = new();
     private List<GitLabDiscussion> _discussionsList = new();
+    private readonly List<string> _postedNotes = [];
 
     [TestInitialize]
     public void SetUp()
@@ -43,6 +44,12 @@ public class MergeRequestReviewerProcessorTests
         _commandServiceMock = new Mock<IAiCommandService>();
         _versionControlMock = new Mock<IVersionControlService>();
         _workspaceManagerMock = new Mock<IAiWorkspaceManager>();
+        _workspaceManagerMock
+            .Setup(manager => manager.ResetRepo(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Aiursoft.GitRunner.Models.CloneMode>(),
+                It.IsAny<string>()))
+            .Callback<string, string, string, Aiursoft.GitRunner.Models.CloneMode, string>(
+                (path, _, _, _, _) => Directory.CreateDirectory(path));
         _aiCliServiceMock = new Mock<AiCliService>(
             _commandServiceMock.Object,
             _options,
@@ -75,6 +82,8 @@ public class MergeRequestReviewerProcessorTests
             }
             if (req.Method == HttpMethod.Post && url.Contains("notes"))
             {
+                var json = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                _postedNotes.Add(JsonDocument.Parse(json).RootElement.GetProperty("body").GetString()!);
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent("{}")
@@ -90,7 +99,7 @@ public class MergeRequestReviewerProcessorTests
     }
 
     [TestMethod]
-    public async Task ProcessReviewRequestsAsync_NeedsReview_CallsAiAndPostsComment()
+    public async Task ProcessReviewRequestsAsync_NewCommitSha_CallsAiAndPostsMarker()
     {
         // Arrange
         var server = new Server
@@ -116,10 +125,31 @@ public class MergeRequestReviewerProcessorTests
 
         _commitsList = new List<GitLabCommit>
         {
-            new GitLabCommit { Message = "latest commit", Created_at = DateTime.UtcNow }
+            new GitLabCommit
+            {
+                Id = "0123456789abcdef0123456789abcdef01234567",
+                Message = "latest commit",
+                Created_at = DateTime.UtcNow
+            }
         };
 
-        _discussionsList = new List<GitLabDiscussion>(); // No previous bot review
+        _discussionsList =
+        [
+            new GitLabDiscussion
+            {
+                Notes =
+                [
+                    new GitLabNote
+                    {
+                        Id = 9,
+                        Body = "Previous review.\n\n<!-- agentbot:mr-review:commit-1111111111111111111111111111111111111111 -->",
+                        Author = new GitLabUser { Username = "bot-user" },
+                        // Deliberately newer than the commit: SHA, not timestamps, must drive the decision.
+                        Created_at = DateTime.UtcNow.AddMinutes(1)
+                    }
+                ]
+            }
+        ];
 
         var repository = new Repository
         {
@@ -179,6 +209,90 @@ public class MergeRequestReviewerProcessorTests
             It.IsAny<string>(),
             It.Is<string>(s => s.Contains("code reviewer") && s.Contains("Simplified Chinese")),
             It.IsAny<bool>()), Times.Once);
+        Assert.HasCount(1, _postedNotes);
+        StringAssert.Contains(
+            _postedNotes[0],
+            "<!-- agentbot:mr-review:commit-0123456789abcdef0123456789abcdef01234567 -->");
+    }
+
+    [TestMethod]
+    public async Task ProcessReviewRequestsAsync_CommitShaAlreadyMarked_DoesNotReviewAgain()
+    {
+        const string commitSha = "abcdef0123456789abcdef0123456789abcdef01";
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "bot-user",
+            Token = "token",
+            EndPoint = "https://gitlab.com"
+        };
+        _gitLabMrList =
+        [
+            new GitLabMergeRequestDto
+            {
+                Iid = 1,
+                Title = "Already reviewed",
+                ProjectId = 101,
+                SourceProjectId = 101,
+                SourceBranch = "feature",
+                TargetBranch = "main",
+                Author = new GitLabUser { Username = "bot-user" }
+            }
+        ];
+        _commitsList =
+        [
+            new GitLabCommit
+            {
+                Id = commitSha,
+                Message = "latest commit",
+                Created_at = DateTime.UtcNow.AddMinutes(-2)
+            }
+        ];
+        _discussionsList =
+        [
+            new GitLabDiscussion
+            {
+                Notes =
+                [
+                    new GitLabNote
+                    {
+                        Id = 10,
+                        Body = $"Looks good.\n\n<!-- agentbot:mr-review:commit-{commitSha} -->",
+                        Author = new GitLabUser { Username = "bot-user" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-1)
+                    }
+                ]
+            }
+        ];
+
+        var workflowEngine = new BotWorkflowEngine(
+            _versionControlMock.Object,
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            _commandServiceMock.Object,
+            _options,
+            new Mock<ILogger<BotWorkflowEngine>>().Object);
+        var processor = new MergeRequestReviewerProcessor(
+            _versionControlMock.Object,
+            workflowEngine,
+            new MergeRequestDiscussionService(
+                _versionControlMock.Object,
+                _workspaceManagerMock.Object,
+                _aiCliServiceMock.Object,
+                _httpClientFactoryMock.Object,
+                _options,
+                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
+            _httpWrapper,
+            _httpClientFactoryMock.Object,
+            _options,
+            _loggerMock.Object);
+
+        var result = await processor.ProcessReviewRequestsAsync(server);
+
+        Assert.IsTrue(result.Success);
+        Assert.IsEmpty(_postedNotes);
+        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
 
     [TestMethod]

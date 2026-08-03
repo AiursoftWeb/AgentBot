@@ -9,13 +9,14 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
 
 namespace Aiursoft.AgentBot.Services;
 
 /// <summary>
 /// Handles reviewing merge requests where the bot is assigned as a reviewer.
 /// </summary>
-public class MergeRequestReviewerProcessor(
+public partial class MergeRequestReviewerProcessor(
     IVersionControlService versionControl,
     BotWorkflowEngine workflowEngine,
     MergeRequestDiscussionService discussionService,
@@ -25,6 +26,9 @@ public class MergeRequestReviewerProcessor(
     ILogger<MergeRequestReviewerProcessor> logger)
 {
     private readonly AgentBotOptions _options = options.Value;
+
+    [GeneratedRegex(@"<!--\s*agentbot:mr-review:commit-(?<sha>[0-9a-f]{7,64})\s*-->", RegexOptions.IgnoreCase)]
+    private static partial Regex ReviewMarkerRegex();
 
     public async Task<ProcessResult> ProcessReviewRequestsAsync(Server server)
     {
@@ -85,7 +89,8 @@ public class MergeRequestReviewerProcessor(
                 SourceBranch = mrDto.SourceBranch
             };
 
-            var (needsReview, discussions, notes) = await CheckIfNeedsReviewAsync(server, mrSearchResult);
+            var (needsReview, reviewCommitSha, discussions, notes) =
+                await CheckIfNeedsReviewAsync(server, mrSearchResult);
 
             if (notes.Any(note => string.Equals(
                     note.Author.Username,
@@ -122,7 +127,8 @@ public class MergeRequestReviewerProcessor(
                     Details = details,
                     TargetBranch = mrDto.TargetBranch,
                     AuthorName = mrDto.Author.Username,
-                    Discussions = discussions
+                    Discussions = discussions,
+                    ReviewCommitSha = reviewCommitSha
                 });
             }
             else
@@ -133,15 +139,14 @@ public class MergeRequestReviewerProcessor(
         return mrsToReview;
     }
 
-    private async Task<(bool NeedsReview, string Discussions, IReadOnlyCollection<GitLabNote> Notes)>
+    private async Task<(bool NeedsReview, string ReviewCommitSha, string Discussions, IReadOnlyCollection<GitLabNote> Notes)>
         CheckIfNeedsReviewAsync(Server server, MergeRequestSearchResult mr)
     {
         try
         {
-            // Get last commit time
             var commitsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/commits";
             var commits = await GitLabPagination.GetAllAsync<GitLabCommit>(httpWrapper, commitsUrl, server.Token);
-            var lastCommitTime = commits.Select(c => c.Created_at).DefaultIfEmpty(DateTime.MinValue).Max();
+            var latestCommit = commits.OrderBy(commit => commit.Created_at).LastOrDefault();
 
             // Get discussions to find last bot review
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
@@ -157,6 +162,7 @@ public class MergeRequestReviewerProcessor(
 
             var sb = new StringBuilder();
             var lastBotReviewTime = DateTime.MinValue;
+            var reviewedCommitShas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var note in discussions.SelectMany(d => d.Notes).Where(n => !n.System).OrderBy(n => n.Created_at))
             {
@@ -164,18 +170,25 @@ public class MergeRequestReviewerProcessor(
                 if (isBot)
                 {
                     lastBotReviewTime = note.Created_at;
+                    foreach (Match match in ReviewMarkerRegex().Matches(note.Body))
+                    {
+                        reviewedCommitShas.Add(match.Groups["sha"].Value);
+                    }
                 }
 
                 sb.AppendLine($"{note.Author.Username}: {note.Body} ({note.Created_at})");
             }
 
-            var needsReview = lastCommitTime > lastBotReviewTime;
-            return (needsReview, sb.ToString(), discussions.SelectMany(d => d.Notes).ToList());
+            var reviewCommitSha = latestCommit?.Id ?? string.Empty;
+            var needsReview = latestCommit != null && (string.IsNullOrWhiteSpace(reviewCommitSha)
+                ? latestCommit.Created_at > lastBotReviewTime
+                : !reviewedCommitShas.Contains(reviewCommitSha));
+            return (needsReview, reviewCommitSha, sb.ToString(), discussions.SelectMany(d => d.Notes).ToList());
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch review details for MR #{IID}", mr.IID);
-            return (false, string.Empty, []);
+            return (false, string.Empty, string.Empty, []);
         }
     }
 
@@ -214,7 +227,11 @@ public class MergeRequestReviewerProcessor(
                     var reviewContent = await File.ReadAllTextAsync(reviewFilePath);
                     if (!string.IsNullOrWhiteSpace(reviewContent))
                     {
-                        await PostReviewCommentAsync(server, mr.ProjectId, mr.IID, reviewContent);
+                        await PostReviewCommentAsync(
+                            server,
+                            mr.ProjectId,
+                            mr.IID,
+                            BuildReviewComment(reviewContent, item.ReviewCommitSha));
                     }
                     else
                     {
@@ -264,5 +281,19 @@ Please write your review into 'review.md' now.";
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.Token);
         var response = await client.PostAsJsonAsync(url, new { body = content });
         response.EnsureSuccessStatusCode();
+    }
+
+    internal static string BuildReviewComment(string reviewContent, string commitSha)
+    {
+        if (string.IsNullOrWhiteSpace(commitSha))
+        {
+            return reviewContent.Trim();
+        }
+        if (!Regex.IsMatch(commitSha, "^[0-9a-f]{7,64}$", RegexOptions.IgnoreCase))
+        {
+            throw new InvalidOperationException($"GitLab returned an invalid commit SHA: '{commitSha}'.");
+        }
+
+        return $"{reviewContent.Trim()}\n\n<!-- agentbot:mr-review:commit-{commitSha.ToLowerInvariant()} -->";
     }
 }
