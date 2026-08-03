@@ -1,4 +1,4 @@
-FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest
+FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest AS agent-base
 
 ARG TARGETARCH
 
@@ -40,7 +40,8 @@ RUN apt-get update && \
       libsqlite3-dev && \
     ln -sf /usr/bin/python3 /usr/local/bin/python && \
     ln -sf /usr/bin/pip3 /usr/local/bin/pip && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Install ARM64 target libraries only in the AMD64 worker image. Native ARM64
 # image builds do not need a foreign architecture configured.
@@ -56,7 +57,8 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         libadwaita-1-dev:arm64 \
         libpcap-dev:arm64 \
         libstd-rust-dev:arm64 && \
-      rm -rf /var/lib/apt/lists/*; \
+      apt-get clean && \
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
 
 # Install Python dependencies commonly needed by AI coding tasks.
@@ -64,7 +66,9 @@ RUN pip install PyYAML requests httpx rich python-dotenv
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
-    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex --loglevel verbose
+    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex --loglevel verbose && \
+    npm cache clean --force && \
+    rm -rf /root/.npm
 
 RUN mkdir -p /workspace /logs /data /home/bot/.codex && \
     chmod 0777 /data && \
@@ -75,28 +79,36 @@ export DOTNET_CLI_HOME=/home/bot/.dotnet\n\
 export PATH="$HOME/.dotnet/tools:$PATH"\n\
 ' > /home/bot/.bashrc && chown bot:bot /home/bot/.bashrc
 
-WORKDIR /app
-COPY . .
-RUN dotnet build -maxcpucount:1 --configuration Release --no-self-contained *.sln && \
-    dotnet pack -maxcpucount:1 --configuration Release *.sln
+FROM agent-base AS app-build
 
-RUN dotnet tool install --global Aiursoft.AgentBot --add-source /app/src/Aiursoft.AgentBot/bin/Release/ && \
-    dotnet tool install --global dotnet-ef --add-source https://nuget.aiursoft.com/v3/index.json && \
-    printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
-      '<configuration><packageSources><clear /><add key="Aiursoft" value="https://nuget.aiursoft.com/v3/index.json" /></packageSources></configuration>' \
-      > /tmp/agent-tools.config && \
-    dotnet tool install --global JetBrains.ReSharper.GlobalTools --configfile /tmp/agent-tools.config -v d && \
-    dotnet tool install --global dotnet-reportgenerator-globaltool --configfile /tmp/agent-tools.config -v d && \
-    dotnet tool install --global aiursoft.apkg.client --configfile /tmp/agent-tools.config -v d && \
-    dotnet tool install --global Aiursoft.Dotlang --configfile /tmp/agent-tools.config -v d && \
-    dotnet tool install --global Aiursoft.NugetNinja --configfile /tmp/agent-tools.config -v d && \
-    rm /tmp/agent-tools.config && \
-    cp -r /root/.dotnet /home/bot/ && chown -R bot:bot /home/bot/.dotnet
+WORKDIR /src
+COPY . .
+RUN dotnet pack -maxcpucount:1 --configuration Release *.sln
+
+FROM agent-base AS final
 
 ENV HOME=/home/bot \
     CODEX_HOME=/home/bot/.codex \
     DOTNET_CLI_HOME=/home/bot/.dotnet \
     PATH="/home/bot/.dotnet/tools:${PATH}"
+
+COPY --from=app-build /src/src/Aiursoft.AgentBot/bin/Release/*.nupkg /tmp/agentbot-packages/
+
+RUN dotnet tool install --tool-path /home/bot/.dotnet/tools Aiursoft.AgentBot --add-source /tmp/agentbot-packages/ && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools dotnet-ef --add-source https://nuget.aiursoft.com/v3/index.json && \
+    printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
+      '<configuration><packageSources><clear /><add key="Aiursoft" value="https://nuget.aiursoft.com/v3/index.json" /></packageSources></configuration>' \
+      > /tmp/agent-tools.config && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools JetBrains.ReSharper.GlobalTools --configfile /tmp/agent-tools.config -v d && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools dotnet-reportgenerator-globaltool --configfile /tmp/agent-tools.config -v d && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools aiursoft.apkg.client --configfile /tmp/agent-tools.config -v d && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools Aiursoft.Dotlang --configfile /tmp/agent-tools.config -v d && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools Aiursoft.NugetNinja --configfile /tmp/agent-tools.config -v d && \
+    rm -rf /tmp/agent-tools.config /tmp/agentbot-packages \
+      /home/bot/.nuget /home/bot/.local /root/.nuget /root/.dotnet && \
+    chown -R bot:bot /home/bot/.dotnet
+
+WORKDIR /app
 
 # /start.sh — tmux-based launcher, same pattern as the ms.local server.
 # tmux session acts as both concurrency guard and attachable debug console.
