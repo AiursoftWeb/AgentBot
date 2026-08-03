@@ -83,7 +83,9 @@ FROM agent-base AS app-build
 
 WORKDIR /src
 COPY . .
-RUN dotnet pack -maxcpucount:1 --configuration Release *.sln
+RUN dotnet restore *.sln && \
+    dotnet build -maxcpucount:1 --configuration Release --no-restore --no-self-contained *.sln && \
+    dotnet pack -maxcpucount:1 --configuration Release --no-restore --no-build *.sln
 
 FROM agent-base AS final
 
