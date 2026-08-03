@@ -18,6 +18,7 @@ namespace Aiursoft.AgentBot.Services;
 public class MergeRequestReviewerProcessor(
     IVersionControlService versionControl,
     BotWorkflowEngine workflowEngine,
+    MergeRequestDiscussionService discussionService,
     HttpWrapper httpWrapper,
     IHttpClientFactory httpClientFactory,
     IOptions<AgentBotOptions> options,
@@ -84,7 +85,31 @@ public class MergeRequestReviewerProcessor(
                 SourceBranch = mrDto.SourceBranch
             };
 
-            var (needsReview, discussions, lastBotReviewTime) = await CheckIfNeedsReviewAsync(server, mrSearchResult);
+            var (needsReview, discussions, notes) = await CheckIfNeedsReviewAsync(server, mrSearchResult);
+
+            if (notes.Any(note => string.Equals(
+                    note.Author.Username,
+                    server.UserName,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    var decision = await discussionService.AnalyzeAsync(
+                        server,
+                        mrSearchResult,
+                        mrDto.TargetBranch,
+                        notes,
+                        allowImplementation: false);
+                    if (decision != null)
+                    {
+                        await discussionService.PublishAsync(server, mrDto.ProjectId, mrDto.Iid, decision);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to process the review conversation for MR #{IID}", mrDto.Iid);
+                }
+            }
 
             if (needsReview)
             {
@@ -97,8 +122,7 @@ public class MergeRequestReviewerProcessor(
                     Details = details,
                     TargetBranch = mrDto.TargetBranch,
                     AuthorName = mrDto.Author.Username,
-                    Discussions = discussions,
-                    LastBotCommitTime = lastBotReviewTime // We repurpose this field to store last bot review time
+                    Discussions = discussions
                 });
             }
             else
@@ -109,7 +133,8 @@ public class MergeRequestReviewerProcessor(
         return mrsToReview;
     }
 
-    private async Task<(bool NeedsReview, string Discussions, DateTime LastBotReviewTime)> CheckIfNeedsReviewAsync(Server server, MergeRequestSearchResult mr)
+    private async Task<(bool NeedsReview, string Discussions, IReadOnlyCollection<GitLabNote> Notes)>
+        CheckIfNeedsReviewAsync(Server server, MergeRequestSearchResult mr)
     {
         try
         {
@@ -121,6 +146,14 @@ public class MergeRequestReviewerProcessor(
             // Get discussions to find last bot review
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
             var discussions = await GitLabPagination.GetAllAsync<GitLabDiscussion>(httpWrapper, discussionsUrl, server.Token);
+
+            foreach (var discussion in discussions)
+            {
+                foreach (var note in discussion.Notes)
+                {
+                    note.DiscussionId = discussion.Id;
+                }
+            }
 
             var sb = new StringBuilder();
             var lastBotReviewTime = DateTime.MinValue;
@@ -137,12 +170,12 @@ public class MergeRequestReviewerProcessor(
             }
 
             var needsReview = lastCommitTime > lastBotReviewTime;
-            return (needsReview, sb.ToString(), lastBotReviewTime);
+            return (needsReview, sb.ToString(), discussions.SelectMany(d => d.Notes).ToList());
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch review details for MR #{IID}", mr.IID);
-            return (false, string.Empty, DateTime.MinValue);
+            return (false, string.Empty, []);
         }
     }
 

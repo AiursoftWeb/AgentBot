@@ -16,6 +16,7 @@ namespace Aiursoft.AgentBot.Services;
 public class MergeRequestProcessor(
     IVersionControlService versionControl,
     BotWorkflowEngine workflowEngine,
+    MergeRequestDiscussionService discussionService,
     HttpWrapper httpWrapper,
     IOptions<AgentBotOptions> options,
     ILogger<MergeRequestProcessor> logger)
@@ -88,7 +89,31 @@ public class MergeRequestProcessor(
             var details = await versionControl.GetMergeRequestDetails(server.EndPoint, server.UserName, server.Token, mr.ProjectId, mr.IID);
 
             var hasConflicts = details.HasConflicts;
-            var (hasNewHumanReview, discussions, lastBotCommitTime) = await GetReviewDetailsAsync(server, mr);
+            var (notes, discussions) = await GetReviewDetailsAsync(server, mr);
+            MergeRequestDiscussionDecision? discussionDecision = null;
+            if (notes.Count > 0)
+            {
+                try
+                {
+                    discussionDecision = await discussionService.AnalyzeAsync(
+                        server,
+                        mr,
+                        targetBranches.GetValueOrDefault(mr.IID, repository.DefaultBranch ?? "master"),
+                        notes,
+                        allowImplementation: true);
+                    if (discussionDecision != null)
+                    {
+                        await discussionService.PublishAsync(server, mr.ProjectId, mr.IID, discussionDecision);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    discussionDecision = null;
+                    logger.LogError(ex, "Failed to process the conversation for MR #{IID}", mr.IID);
+                }
+            }
+
+            var hasNewHumanReview = discussionDecision?.Action == MergeRequestDiscussionAction.ImplementFeedback;
             var pipelineFailed = details.Pipeline?.Status == "failed";
 
             if (hasConflicts || hasNewHumanReview || pipelineFailed)
@@ -128,7 +153,7 @@ public class MergeRequestProcessor(
                     TargetRepositoryCloneUrl = repository.CloneUrl ?? string.Empty,
                     AuthorName = authorName,
                     Discussions = discussions,
-                    LastBotCommitTime = lastBotCommitTime
+                    DiscussionDecision = discussionDecision
                 });
             }
             else
@@ -139,38 +164,35 @@ public class MergeRequestProcessor(
         return mrsToProcess;
     }
 
-    private async Task<(bool HasNewHumanReview, string Discussions, DateTime LastBotCommitTime)> GetReviewDetailsAsync(Server server, MergeRequestSearchResult mr)
+    private async Task<(IReadOnlyCollection<GitLabNote> Notes, string Discussions)> GetReviewDetailsAsync(
+        Server server,
+        MergeRequestSearchResult mr)
     {
-        if (server.Provider != "GitLab") return (false, string.Empty, DateTime.MinValue);
+        if (server.Provider != "GitLab") return ([], string.Empty);
         try
         {
-            var commitsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/commits";
-            var commits = await GitLabPagination.GetAllAsync<GitLabCommit>(httpWrapper, commitsUrl, server.Token);
-            var lastBotCommitTime = commits.Where(c => c.Message.Contains("Agent Bot")).Select(c => c.Created_at).DefaultIfEmpty(DateTime.MinValue).Max();
-
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
             var discussions = await GitLabPagination.GetAllAsync<GitLabDiscussion>(httpWrapper, discussionsUrl, server.Token);
-
             var sb = new StringBuilder();
-            var hasNewHumanReview = false;
-
-            foreach (var note in discussions.SelectMany(d => d.Notes).Where(n => !n.System).OrderBy(n => n.Created_at))
+            foreach (var discussion in discussions)
             {
-                var isBot = string.Equals(note.Author.Username, server.UserName, StringComparison.OrdinalIgnoreCase);
-                var isNew = note.Created_at > lastBotCommitTime;
-
-                if (!isBot && isNew) hasNewHumanReview = true;
-
-                var prefix = isNew ? "[NEW] " : "";
-                sb.AppendLine($"{prefix}{note.Author.Username}: {note.Body} ({note.Created_at})");
+                foreach (var note in discussion.Notes)
+                {
+                    note.DiscussionId = discussion.Id;
+                }
+            }
+            var notes = discussions.SelectMany(d => d.Notes).Where(n => !n.System).ToList();
+            foreach (var note in notes.OrderBy(n => n.Created_at))
+            {
+                sb.AppendLine($"Note {note.Id} by {note.Author.Username}: {note.Body} ({note.Created_at})");
             }
 
-            return (hasNewHumanReview, sb.ToString(), lastBotCommitTime);
+            return (notes, sb.ToString());
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch review details for MR #{IID}", mr.IID);
-            return (false, string.Empty, DateTime.MinValue);
+            return ([], string.Empty);
         }
     }
 
@@ -227,7 +249,7 @@ public class MergeRequestProcessor(
 Source Branch: {item.SearchResult.SourceBranch}
 Target Branch: {item.TargetBranch}
 
-Recent discussions and feedback (marked [NEW] if since last bot commit):
+Recent discussions and feedback:
 {item.Discussions ?? "No discussions found."}
 
 {ReplyLanguageText.PromptInstruction(_options.ReplyLanguage)}
@@ -237,7 +259,7 @@ Recent discussions and feedback (marked [NEW] if since last bot commit):
             return (BuildConflictPrompt(basePrompt, item.SearchResult, item.TargetBranch), $"Resolve merge conflicts for MR #{item.SearchResult.IID} by merging {item.TargetBranch}\n\nAutomatically generated fix by Agent Bot.");
 
         if (item.HasNewHumanReview)
-            return (BuildReviewPrompt(basePrompt), $"Address human review for MR #{item.SearchResult.IID}\n\nAutomatically generated fix by Agent Bot.");
+            return (BuildReviewPrompt(basePrompt, item.DiscussionDecision), $"Address human review for MR #{item.SearchResult.IID}\n\nAutomatically generated fix by Agent Bot.");
 
         var logs = await GetFailureLogsAsync(server, pipelineProjectId, item.Details.Pipeline!.Id);
         return (BuildFailurePrompt(basePrompt, item.Details, logs), $"Fix pipeline failure for MR #{item.SearchResult.IID}\n\nAutomatically generated fix by Agent Bot.");
@@ -269,12 +291,15 @@ Failure Logs:
 Please analyze the logs and the codebase to fix the failures.
 {AiPromptHelper.GetEfMigrationGuidelines()}";
 
-    private string BuildReviewPrompt(string basePrompt) =>
+    private string BuildReviewPrompt(
+        string basePrompt,
+        MergeRequestDiscussionDecision? decision) =>
         $@"{basePrompt}
 Status: NEW HUMAN REVIEW/COMMENTS.
-A human has provided feedback on this MR. Please address the comments mentioned in the discussions above, especially those marked as [NEW].
+A read-only conversation pass determined that the human explicitly requested this code change:
+{decision?.ImplementationBrief ?? throw new InvalidOperationException("Accepted MR feedback has no implementation brief.")}
 
-Please analyze the feedback and make the necessary changes.
+Implement exactly the accepted brief. Do not reinterpret rejected findings or turn other discussion into additional work.
 {AiPromptHelper.GetEfMigrationGuidelines()}";
 
     private async Task HandleOthersMrFinalizeAsync(WorkflowContext ctx, MergeRequestSearchResult oldMr, string targetBranch, string aiOutput)

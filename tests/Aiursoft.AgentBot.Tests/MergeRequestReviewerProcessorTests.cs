@@ -158,6 +158,13 @@ public class MergeRequestReviewerProcessorTests
         var processor = new MergeRequestReviewerProcessor(
             _versionControlMock.Object,
             workflowEngine,
+            new MergeRequestDiscussionService(
+                _versionControlMock.Object,
+                _workspaceManagerMock.Object,
+                _aiCliServiceMock.Object,
+                _httpClientFactoryMock.Object,
+                _options,
+                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
             _httpWrapper,
             _httpClientFactoryMock.Object,
             _options,
@@ -172,5 +179,102 @@ public class MergeRequestReviewerProcessorTests
             It.IsAny<string>(),
             It.Is<string>(s => s.Contains("code reviewer") && s.Contains("Simplified Chinese")),
             It.IsAny<bool>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ProcessReviewRequestsAsync_ImplementationRequestInReviewOnlyRole_DoesNotEdit()
+    {
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "bot-user",
+            Token = "token",
+            EndPoint = "https://gitlab.com"
+        };
+        _gitLabMrList =
+        [
+            new GitLabMergeRequestDto
+            {
+                Iid = 1,
+                Title = "Discuss review",
+                ProjectId = 101,
+                SourceProjectId = 101,
+                SourceBranch = "feature",
+                TargetBranch = "main",
+                Author = new GitLabUser { Username = "bot-user" }
+            }
+        ];
+        _commitsList =
+        [
+            new GitLabCommit { Message = "old commit", Created_at = DateTime.UtcNow.AddMinutes(-3) }
+        ];
+        _discussionsList =
+        [
+            new GitLabDiscussion
+            {
+                Notes =
+                [
+                    new GitLabNote
+                    {
+                        Id = 10,
+                        Body = "Please handle this edge case.",
+                        Author = new GitLabUser { Username = "bot-user" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-2)
+                    },
+                    new GitLabNote
+                    {
+                        Id = 11,
+                        Body = "请直接修改这个问题。",
+                        Author = new GitLabUser { Username = "owner" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-1)
+                    }
+                ]
+            }
+        ];
+        _versionControlMock
+            .Setup(service => service.GetRepository(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new Repository
+            {
+                CloneUrl = "https://gitlab.com/bot-user/repo.git",
+                Name = "repo"
+            });
+        _aiCliServiceMock
+            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((true,
+                "{\"action\":\"implement_feedback\",\"addressed_note_ids\":[11],\"response_markdown\":\"我来修改。\",\"implementation_brief\":\"Handle the edge case.\"}",
+                string.Empty));
+
+        var workflowEngine = new BotWorkflowEngine(
+            _versionControlMock.Object,
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            _commandServiceMock.Object,
+            _options,
+            new Mock<ILogger<BotWorkflowEngine>>().Object);
+        var processor = new MergeRequestReviewerProcessor(
+            _versionControlMock.Object,
+            workflowEngine,
+            new MergeRequestDiscussionService(
+                _versionControlMock.Object,
+                _workspaceManagerMock.Object,
+                _aiCliServiceMock.Object,
+                _httpClientFactoryMock.Object,
+                _options,
+                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
+            _httpWrapper,
+            _httpClientFactoryMock.Object,
+            _options,
+            _loggerMock.Object);
+
+        var result = await processor.ProcessReviewRequestsAsync(server);
+
+        Assert.IsTrue(result.Success);
+        _aiCliServiceMock.Verify(service => service.InvokePlanningCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt => prompt.Contains("Implementation authority for this invocation: not allowed"))),
+            Times.Once);
+        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
 }

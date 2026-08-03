@@ -13,6 +13,9 @@ public class GitLabCommit
 
 public class GitLabDiscussion
 {
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
     [JsonPropertyName("notes")]
     public IEnumerable<GitLabNote> Notes { get; set; } = [];
 }
@@ -33,6 +36,9 @@ public class GitLabNote
 
     [JsonPropertyName("system")]
     public bool System { get; set; }
+
+    [JsonIgnore]
+    public string DiscussionId { get; set; } = string.Empty;
 }
 
 public class GitLabUser

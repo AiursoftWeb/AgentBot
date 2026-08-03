@@ -13,5 +13,5 @@ public class MRToProcess
     public string TargetRepositoryCloneUrl { get; init; } = string.Empty;
     public string? AuthorName { get; init; }
     public string? Discussions { get; init; }
-    public DateTime LastBotCommitTime { get; init; }
+    public MergeRequestDiscussionDecision? DiscussionDecision { get; init; }
 }

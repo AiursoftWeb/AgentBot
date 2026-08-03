@@ -29,11 +29,15 @@ public class MergeRequestProcessorTests
     private Mock<IVersionControlService> _versionControlMock = null!;
     private Mock<IAiWorkspaceManager> _workspaceManagerMock = null!;
     private HttpWrapper _httpWrapper = null!;
+    private MergeRequestDiscussionService _discussionService = null!;
     private Mock<AiCliService> _aiCliServiceMock = null!;
     private Mock<IAiCommandService> _commandServiceMock = null!;
     private Mock<ILogger<MergeRequestProcessor>> _loggerMock = null!;
     private IOptions<AgentBotOptions> _options = null!;
     private List<GitLabMergeRequestDto> _gitLabMrList = new();
+    private List<GitLabDiscussion> _gitLabDiscussions = new();
+    private readonly List<string> _postedNotes = [];
+    private readonly List<string> _postedNoteUrls = [];
     private GitLabUser _botUser = new();
     private List<GitLabMergeRequestDto> _botMrList = new();
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -76,7 +80,7 @@ public class MergeRequestProcessorTests
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("[]")
+                    Content = new StringContent(JsonSerializer.Serialize(_gitLabDiscussions))
                 });
             }
             if (req.Method == HttpMethod.Get && url.Contains("merge_requests") && url.Contains("commits"))
@@ -91,6 +95,27 @@ public class MergeRequestProcessorTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(JsonSerializer.Serialize(_botUser))
+                });
+            }
+            if (req.Method == HttpMethod.Post && url.Contains("merge_requests") && url.Contains("notes"))
+            {
+                var json = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var body = JsonDocument.Parse(json).RootElement.GetProperty("body").GetString()!;
+                _postedNotes.Add(body);
+                _postedNoteUrls.Add(url);
+                if (_gitLabDiscussions.Count > 0)
+                {
+                    _gitLabDiscussions[0].Notes = _gitLabDiscussions[0].Notes.Append(new GitLabNote
+                    {
+                        Id = _gitLabDiscussions.SelectMany(discussion => discussion.Notes).Max(note => note.Id) + 1,
+                        Body = body,
+                        Author = new GitLabUser { Username = "bot-user" },
+                        Created_at = DateTime.UtcNow
+                    }).ToList();
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
                 });
             }
             if (req.Method == HttpMethod.Put && url.Contains("merge_requests/") && url.Contains("assignee_ids="))
@@ -112,6 +137,224 @@ public class MergeRequestProcessorTests
 
         var client = new HttpClient(handler);
         _httpWrapper = new HttpWrapper(new Mock<ILogger<HttpWrapper>>().Object, client);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(factory => factory.CreateClient(It.IsAny<string>()))
+            .Returns(() => new HttpClient(handler, disposeHandler: false));
+        _discussionService = new MergeRequestDiscussionService(
+            _versionControlMock.Object,
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            httpClientFactory.Object,
+            _options,
+            new Mock<ILogger<MergeRequestDiscussionService>>().Object);
+    }
+
+    [TestMethod]
+    public async Task ProcessMergeRequestsAsync_HumanDismissesFinding_RepliesOnceWithoutChangingCode()
+    {
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "bot-user",
+            Token = "token",
+            EndPoint = "https://gitlab.com",
+            DisplayName = "Bot",
+            UserEmail = "bot@aiursoft.com"
+        };
+        _gitLabMrList =
+        [
+            new GitLabMergeRequestDto
+            {
+                Iid = 1,
+                Title = "Bot-owned MR",
+                ProjectId = 101,
+                SourceProjectId = 101,
+                SourceBranch = "feature",
+                TargetBranch = "main",
+                Author = new GitLabUser { Username = "bot-user" }
+            }
+        ];
+        _gitLabDiscussions =
+        [
+            new GitLabDiscussion
+            {
+                Id = "discussion-abc",
+                Notes =
+                [
+                    new GitLabNote
+                    {
+                        Id = 10,
+                        Body = "This edge case should be handled.",
+                        Author = new GitLabUser { Username = "bot-user" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-2)
+                    },
+                    new GitLabNote
+                    {
+                        Id = 11,
+                        Body = "不考虑这个情况。",
+                        Author = new GitLabUser { Username = "owner" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-1)
+                    }
+                ]
+            }
+        ];
+
+        _versionControlMock
+            .Setup(service => service.GetRepository(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new Repository
+            {
+                Name = "repo",
+                CloneUrl = "https://gitlab.com/bot-user/repo.git",
+                DefaultBranch = "main"
+            });
+        _versionControlMock
+            .Setup(service => service.GetMergeRequestDetails(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync(new DetailedMergeRequest());
+        _aiCliServiceMock
+            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((true,
+                "{\"action\":\"dismiss_finding\",\"addressed_note_ids\":[11],\"response_markdown\":\"明白，这个场景不纳入本次修改。\",\"implementation_brief\":null}",
+                string.Empty));
+
+        var workflowEngine = new BotWorkflowEngine(
+            _versionControlMock.Object,
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            _commandServiceMock.Object,
+            _options,
+            new Mock<ILogger<BotWorkflowEngine>>().Object);
+        var processor = new MergeRequestProcessor(
+            _versionControlMock.Object,
+            workflowEngine,
+            _discussionService,
+            _httpWrapper,
+            _options,
+            _loggerMock.Object);
+
+        var firstResult = await processor.ProcessMergeRequestsAsync(server);
+        var secondResult = await processor.ProcessMergeRequestsAsync(server);
+
+        Assert.IsTrue(firstResult.Success);
+        Assert.IsTrue(secondResult.Success, secondResult.Error?.ToString() ?? secondResult.Message);
+        Assert.HasCount(1, _postedNotes);
+        StringAssert.Contains(_postedNotes[0], "agentbot:mr-discussion:v1:through-note-11");
+        StringAssert.EndsWith(_postedNoteUrls[0], "/discussions/discussion-abc/notes");
+        _aiCliServiceMock.Verify(service => service.InvokePlanningCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt => prompt.Contains("不考虑这个情况", StringComparison.Ordinal))), Times.Once);
+        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _workspaceManagerMock.Verify(manager => manager.CommitToBranch(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task ProcessMergeRequestsAsync_ExplicitImplementationRequest_UsesAcceptedBrief()
+    {
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "bot-user",
+            Token = "token",
+            EndPoint = "https://gitlab.com",
+            DisplayName = "Bot",
+            UserEmail = "bot@aiursoft.com"
+        };
+        _gitLabMrList =
+        [
+            new GitLabMergeRequestDto
+            {
+                Iid = 1,
+                Title = "Bot-owned MR",
+                ProjectId = 101,
+                SourceProjectId = 101,
+                SourceBranch = "feature",
+                TargetBranch = "main",
+                Author = new GitLabUser { Username = "bot-user" }
+            }
+        ];
+        _gitLabDiscussions =
+        [
+            new GitLabDiscussion
+            {
+                Notes =
+                [
+                    new GitLabNote
+                    {
+                        Id = 20,
+                        Body = "Should the timeout be configurable?",
+                        Author = new GitLabUser { Username = "bot-user" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-2)
+                    },
+                    new GitLabNote
+                    {
+                        Id = 21,
+                        Body = "Yes, add a BOT_TIMEOUT_SECONDS setting.",
+                        Author = new GitLabUser { Username = "owner" },
+                        Created_at = DateTime.UtcNow.AddMinutes(-1)
+                    }
+                ]
+            }
+        ];
+        _versionControlMock
+            .Setup(service => service.GetRepository(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new Repository
+            {
+                Name = "repo",
+                CloneUrl = "https://gitlab.com/bot-user/repo.git",
+                DefaultBranch = "main"
+            });
+        _versionControlMock
+            .Setup(service => service.GetMergeRequestDetails(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync(new DetailedMergeRequest());
+        _aiCliServiceMock
+            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((true,
+                "{\"action\":\"implement_feedback\",\"addressed_note_ids\":[21],\"response_markdown\":\"好的，我会增加该配置。\",\"implementation_brief\":\"Add BOT_TIMEOUT_SECONDS with validation and tests.\"}",
+                string.Empty));
+        _aiCliServiceMock
+            .Setup(service => service.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync((true, "Implemented", string.Empty));
+        _workspaceManagerMock.Setup(manager => manager.PendingCommit(It.IsAny<string>())).ReturnsAsync(true);
+        _workspaceManagerMock
+            .Setup(manager => manager.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(true);
+        _commandServiceMock
+            .Setup(service => service.RunCommandAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
+                It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
+            .ReturnsAsync((0, "1", string.Empty));
+
+        var workflowEngine = new BotWorkflowEngine(
+            _versionControlMock.Object,
+            _workspaceManagerMock.Object,
+            _aiCliServiceMock.Object,
+            _commandServiceMock.Object,
+            _options,
+            new Mock<ILogger<BotWorkflowEngine>>().Object);
+        var processor = new MergeRequestProcessor(
+            _versionControlMock.Object,
+            workflowEngine,
+            _discussionService,
+            _httpWrapper,
+            _options,
+            _loggerMock.Object);
+
+        var result = await processor.ProcessMergeRequestsAsync(server);
+
+        Assert.IsTrue(result.Success);
+        Assert.HasCount(1, _postedNotes);
+        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt => prompt.Contains(
+                "Add BOT_TIMEOUT_SECONDS with validation and tests.", StringComparison.Ordinal)),
+            It.IsAny<bool>()), Times.Once);
+        _workspaceManagerMock.Verify(manager => manager.CommitToBranch(
+            It.IsAny<string>(), It.IsAny<string>(), "feature"), Times.Once);
     }
 
     [TestMethod]
@@ -217,6 +460,7 @@ public class MergeRequestProcessorTests
         var processor = new MergeRequestProcessor(
             _versionControlMock.Object,
             workflowEngine,
+            _discussionService,
             _httpWrapper,
             _options,
             _loggerMock.Object);
@@ -340,6 +584,7 @@ public class MergeRequestProcessorTests
         var processor = new MergeRequestProcessor(
             _versionControlMock.Object,
             workflowEngine,
+            _discussionService,
             _httpWrapper,
             _options,
             _loggerMock.Object);
@@ -490,6 +735,7 @@ public class MergeRequestProcessorTests
         var processor = new MergeRequestProcessor(
             _versionControlMock.Object,
             workflowEngine,
+            _discussionService,
             _httpWrapper,
             _options,
             _loggerMock.Object);
@@ -634,6 +880,7 @@ public class MergeRequestProcessorTests
         var processor = new MergeRequestProcessor(
             _versionControlMock.Object,
             workflowEngine,
+            _discussionService,
             _httpWrapper,
             _options,
             _loggerMock.Object);
