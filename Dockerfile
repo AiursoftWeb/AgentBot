@@ -93,24 +93,6 @@ RUN dotnet tool install --global Aiursoft.AgentBot --add-source /app/src/Aiursof
     rm /tmp/agent-tools.config && \
     cp -r /root/.dotnet /home/bot/ && chown -R bot:bot /home/bot/.dotnet
 
-# Install GitLab Runner and its helper images using explicit filenames so the
-# build does not depend on Content-Disposition response headers.
-RUN curl --fail --show-error --location --retry 3 --connect-timeout 20 --max-time 300 \
-      https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner-helper-images.deb \
-      --output /tmp/gitlab-runner-helper-images.deb && \
-    curl --fail --show-error --location --retry 3 --connect-timeout 20 --max-time 300 \
-      "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/deb/gitlab-runner_${TARGETARCH}.deb" \
-      --output /tmp/gitlab-runner.deb && \
-    dpkg -i /tmp/gitlab-runner-helper-images.deb /tmp/gitlab-runner.deb && \
-    rm /tmp/gitlab-runner-helper-images.deb /tmp/gitlab-runner.deb && \
-    usermod -aG docker root && \
-    usermod -aG docker gitlab-runner && \
-    usermod -aG sudo gitlab-runner && \
-    printf 'gitlab-runner ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/gitlab-runner && \
-    chmod 0440 /etc/sudoers.d/gitlab-runner && \
-    visudo -cf /etc/sudoers.d/bot && \
-    visudo -cf /etc/sudoers.d/gitlab-runner
-
 ENV HOME=/home/bot \
     CODEX_HOME=/home/bot/.codex \
     DOTNET_CLI_HOME=/home/bot/.dotnet \
