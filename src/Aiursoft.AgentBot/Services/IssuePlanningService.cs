@@ -262,7 +262,7 @@ public partial class IssuePlanningService(
                 long.TryParse(match.Groups["note"].Value, out var throughNoteId) &&
                 version == planVersion)
             {
-                return new IssueDiscussionState(version, throughNoteId);
+                return new IssueDiscussionState(throughNoteId);
             }
         }
 

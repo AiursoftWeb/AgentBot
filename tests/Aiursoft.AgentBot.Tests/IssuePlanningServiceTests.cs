@@ -90,7 +90,7 @@ public class IssuePlanningServiceTests
             Author = new GitLabUser { Username = "agent-bot" },
             Created_at = Utc(13)
         });
-        var fixture = CreateFixture(notes, "respond", null);
+        var fixture = CreateFixture(notes, "respond");
 
         var outcome = await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
 

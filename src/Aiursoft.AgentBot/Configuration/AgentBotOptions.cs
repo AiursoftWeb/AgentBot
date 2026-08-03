@@ -33,14 +33,14 @@ public class AgentBotOptions
     /// <summary>
     /// Preferred language for user-facing Issue and merge request content.
     /// </summary>
-    public ReplyLanguage ReplyLanguage { get; set; } = global::Aiursoft.AgentBot.Configuration.ReplyLanguage.En;
+    public ReplyLanguage ReplyLanguage { get; set; } = ReplyLanguage.En;
 
     public static ReplyLanguage ParseReplyLanguage(string? configuredLanguage)
     {
         return configuredLanguage?.Trim().ToLowerInvariant() switch
         {
-            null or "" or "en" => global::Aiursoft.AgentBot.Configuration.ReplyLanguage.En,
-            "zh" => global::Aiursoft.AgentBot.Configuration.ReplyLanguage.Zh,
+            null or "" or "en" => ReplyLanguage.En,
+            "zh" => ReplyLanguage.Zh,
             _ => throw new InvalidOperationException(
                 $"BOT_REPLY_LANGUAGE must be either 'en' or 'zh', but was '{configuredLanguage}'.")
         };

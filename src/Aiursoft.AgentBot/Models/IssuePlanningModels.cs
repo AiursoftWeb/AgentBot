@@ -34,7 +34,7 @@ public sealed class IssuePlannerResponse
 
 public sealed record IssuePlanState(int Version, long NoteId, string Markdown);
 
-public sealed record IssueDiscussionState(int PlanVersion, long ThroughNoteId);
+public sealed record IssueDiscussionState(long ThroughNoteId);
 
 public sealed record IssuePlanningOutcome(bool Approved, string? ApprovedPlan, string Message)
 {
