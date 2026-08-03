@@ -155,7 +155,10 @@ deploy_docker_all:
 
               while [ "$attempt" -le 3 ]; do
                 echo "Building and pushing multi-arch image to $target (attempt $attempt/3)..."
-                if timeout --foreground 15m docker buildx build . \
+                # Docker Hub can take longer than 15 minutes to receive the large
+                # multi-architecture image. Keep the attempt bounded, but allow
+                # enough time for a slow upload to finish instead of canceling it.
+                if timeout --foreground 45m docker buildx build . \
                   --platform linux/amd64,linux/arm64 \
                   --tag "$target" \
                   --push; then
