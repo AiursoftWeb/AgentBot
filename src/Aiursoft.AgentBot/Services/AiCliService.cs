@@ -121,6 +121,15 @@ public class AiCliService(
         var modelArg = !string.IsNullOrWhiteSpace(_options.Model)
             ? $" --model {_options.Model}"
             : "";
+        var reasoningEffortArg = _options.ReasoningEffort is { } reasoningEffort
+            ? $" -c 'model_reasoning_effort=\\\"{reasoningEffort.ToString().ToLowerInvariant()}\\\"'"
+            : "";
+
+        if (_options.Engine != AiEngine.Codex && _options.ReasoningEffort != null)
+        {
+            throw new InvalidOperationException(
+                "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex.");
+        }
 
         return _options.Engine switch
         {
@@ -130,8 +139,8 @@ public class AiCliService(
 
             AiEngine.Codex => (
                 planningOnly
-                    ? $"codex exec --dangerously-bypass-approvals-and-sandbox --ignore-user-config --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}"
-                    : $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg} - < {ShellQuote(taskFile)}",
+                    ? $"codex exec --dangerously-bypass-approvals-and-sandbox --ignore-user-config --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg}{reasoningEffortArg} - < {ShellQuote(taskFile)}"
+                    : $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg}{reasoningEffortArg} - < {ShellQuote(taskFile)}",
                 null),
 
             _ => throw new ArgumentOutOfRangeException(nameof(_options.Engine), $"Unsupported AI engine: {_options.Engine}")

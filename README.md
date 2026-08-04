@@ -38,7 +38,7 @@ The bot supports multiple AI backends via the `Engine` configuration:
 
 When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
 
-When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration.
+When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration. `ReasoningEffort` optionally passes an explicit `model_reasoning_effort` override to every Codex invocation.
 
 ## Configuration
 
@@ -80,6 +80,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default) or `Claude` |
 | `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
 | `Model` | `AgentBot__Model` | No | Optional model name passed to the selected CLI with `--model` |
+| `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex only | Optional Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
 | `ApiKey` | `AgentBot__ApiKey` | Claude only | API key for the AI provider; not used by Codex |
 | `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
@@ -159,7 +160,7 @@ The container runs silently in the background via cron. No ports exposed.
 
 #### Codex with a ChatGPT account
 
-Create a persistent volume for the Codex login, then start AgentBot. `AgentBot__Model` is optional and may be removed to use Codex's configured default.
+Create a persistent volume for the Codex login, then start AgentBot. `AgentBot__Model` and `AgentBot__ReasoningEffort` are optional and may be removed to use Codex's configured defaults.
 
 ```bash
 docker volume create agent-bot-codex-home
@@ -168,7 +169,8 @@ docker run -d \
   --name agent-bot \
   -e AgentBot__Engine=Codex \
   -e BOT_REPLY_LANGUAGE=zh \
-  -e AgentBot__Model=your-model-name \
+  -e AgentBot__Model=gpt-5.6-sol \
+  -e AgentBot__ReasoningEffort=high \
   -e AgentBot__WorkspaceFolder=/workspace \
   -e Servers__0__Provider=GitLab \
   -e Servers__0__EndPoint=https://gitlab.aiursoft.com \

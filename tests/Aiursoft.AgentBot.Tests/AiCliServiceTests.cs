@@ -28,6 +28,36 @@ public class AiCliServiceTests
     }
 
     [TestMethod]
+    [DataRow("minimal", CodexReasoningEffort.Minimal)]
+    [DataRow(" LOW ", CodexReasoningEffort.Low)]
+    [DataRow("medium", CodexReasoningEffort.Medium)]
+    [DataRow("High", CodexReasoningEffort.High)]
+    [DataRow("xhigh", CodexReasoningEffort.XHigh)]
+    public void ParseReasoningEffort_WithSupportedValue_ReturnsNormalizedValue(
+        string configuredValue,
+        CodexReasoningEffort expected)
+    {
+        Assert.AreEqual(expected, AgentBotOptions.ParseReasoningEffort(configuredValue));
+    }
+
+    [TestMethod]
+    public void ParseReasoningEffort_WithEmptyValue_ReturnsNull()
+    {
+        Assert.IsNull(AgentBotOptions.ParseReasoningEffort(null));
+        Assert.IsNull(AgentBotOptions.ParseReasoningEffort("  "));
+    }
+
+    [TestMethod]
+    public void ParseReasoningEffort_WithUnsupportedValue_FailsClearly()
+    {
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(
+            () => AgentBotOptions.ParseReasoningEffort("ultra"));
+
+        StringAssert.Contains(exception.Message, "AgentBot__ReasoningEffort");
+        StringAssert.Contains(exception.Message, "minimal, low, medium, high, or xhigh");
+    }
+
+    [TestMethod]
     public async Task InvokeAiCliAsync_WithCodex_UsesYoloModeAndFileLogin()
     {
         var (arg, environmentVariables) = await InvokeCodexAsync(model: null);
@@ -37,6 +67,19 @@ public class AiCliServiceTests
             "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file");
         StringAssert.Contains(arg, " - < '/tmp/agentbot-");
         Assert.IsFalse(arg.Contains(" --model ", StringComparison.Ordinal));
+        Assert.IsFalse(arg.Contains("model_reasoning_effort", StringComparison.Ordinal));
+        Assert.IsNull(environmentVariables);
+    }
+
+    [TestMethod]
+    public async Task InvokeAiCliAsync_WithCodexReasoningEffort_PassesConfigOverride()
+    {
+        var (arg, environmentVariables) = await InvokeCodexAsync(
+            model: "gpt-5.6-sol",
+            reasoningEffort: CodexReasoningEffort.High);
+
+        StringAssert.Contains(arg, " --model gpt-5.6-sol");
+        StringAssert.Contains(arg, " -c 'model_reasoning_effort=\\\"high\\\"'");
         Assert.IsNull(environmentVariables);
     }
 
@@ -60,9 +103,51 @@ public class AiCliServiceTests
         Assert.IsNull(environmentVariables);
     }
 
+    [TestMethod]
+    public async Task InvokePlanningCliAsync_WithReasoningEffort_PassesOverrideDespiteIgnoredUserConfig()
+    {
+        var (arg, _) = await InvokeCodexAsync(
+            model: "gpt-5.6-sol",
+            planningOnly: true,
+            reasoningEffort: CodexReasoningEffort.XHigh);
+
+        StringAssert.Contains(arg, " --ignore-user-config ");
+        StringAssert.Contains(arg, " -c 'model_reasoning_effort=\\\"xhigh\\\"'");
+    }
+
+    [TestMethod]
+    public async Task InvokeAiCliAsync_WithClaudeReasoningEffort_FailsClearly()
+    {
+        var workPath = Path.Combine(Path.GetTempPath(), $"AgentBotAiCliTests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workPath);
+
+        try
+        {
+            var service = new AiCliService(
+                Mock.Of<IAiCommandService>(),
+                Options.Create(new AgentBotOptions
+                {
+                    Engine = AiEngine.Claude,
+                    ReasoningEffort = CodexReasoningEffort.High
+                }),
+                Mock.Of<ILogger<AiCliService>>());
+
+            var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => service.InvokeAiCliAsync(workPath, "Implement the requested change.", hideGitFolder: false));
+
+            StringAssert.Contains(exception.Message, "AgentBot__ReasoningEffort");
+            StringAssert.Contains(exception.Message, "Codex");
+        }
+        finally
+        {
+            Directory.Delete(workPath, recursive: true);
+        }
+    }
+
     private static async Task<(string Arg, IDictionary<string, string?>? EnvironmentVariables)> InvokeCodexAsync(
         string? model,
-        bool planningOnly = false)
+        bool planningOnly = false,
+        CodexReasoningEffort? reasoningEffort = null)
     {
         var workPath = Path.Combine(Path.GetTempPath(), $"AgentBotAiCliTests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workPath);
@@ -93,6 +178,7 @@ public class AiCliServiceTests
             {
                 Engine = AiEngine.Codex,
                 Model = model,
+                ReasoningEffort = reasoningEffort,
                 ApiKey = "must-not-be-forwarded"
             });
             var service = new AiCliService(

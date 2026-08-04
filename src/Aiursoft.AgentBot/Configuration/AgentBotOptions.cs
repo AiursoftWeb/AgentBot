@@ -12,6 +12,15 @@ public enum ReplyLanguage
     Zh
 }
 
+public enum CodexReasoningEffort
+{
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh
+}
+
 /// <summary>
 /// Configuration options for the Agent Bot.
 /// </summary>
@@ -46,6 +55,21 @@ public class AgentBotOptions
         };
     }
 
+    public static CodexReasoningEffort? ParseReasoningEffort(string? configuredEffort)
+    {
+        return configuredEffort?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "minimal" => CodexReasoningEffort.Minimal,
+            "low" => CodexReasoningEffort.Low,
+            "medium" => CodexReasoningEffort.Medium,
+            "high" => CodexReasoningEffort.High,
+            "xhigh" => CodexReasoningEffort.XHigh,
+            _ => throw new InvalidOperationException(
+                $"AgentBot__ReasoningEffort must be one of minimal, low, medium, high, or xhigh, but was '{configuredEffort}'.")
+        };
+    }
+
     public static void RejectRemovedEngine(string? configuredEngine)
     {
         if (string.Equals(configuredEngine, "Gemini", StringComparison.OrdinalIgnoreCase))
@@ -59,6 +83,11 @@ public class AgentBotOptions
     /// The AI model to use (passed to --model parameter).
     /// </summary>
     public string? Model { get; set; }
+
+    /// <summary>
+    /// Codex reasoning effort. When set, it is passed as model_reasoning_effort for every Codex invocation.
+    /// </summary>
+    public CodexReasoningEffort? ReasoningEffort { get; set; }
 
     /// <summary>
     /// API key for the AI provider. Set as the provider-specific environment variable (for example, ANTHROPIC_API_KEY).

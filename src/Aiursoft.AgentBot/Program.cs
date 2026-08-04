@@ -42,11 +42,22 @@ static IHostBuilder CreateHostBuilder(string[] args)
             AgentBotOptions.RejectRemovedEngine(context.Configuration["AgentBot:Engine"]);
             var replyLanguage = AgentBotOptions.ParseReplyLanguage(
                 context.Configuration["BOT_REPLY_LANGUAGE"] ?? context.Configuration["AgentBot:ReplyLanguage"]);
+            var reasoningEffort = AgentBotOptions.ParseReasoningEffort(
+                context.Configuration["AgentBot:ReasoningEffort"]);
             services.AddMemoryCache();
             services.AddHttpClient();
             services.Configure<List<Server>>(context.Configuration.GetSection("Servers"));
             services.Configure<AgentBotOptions>(context.Configuration.GetSection("AgentBot"));
-            services.PostConfigure<AgentBotOptions>(options => options.ReplyLanguage = replyLanguage);
+            services.PostConfigure<AgentBotOptions>(options =>
+            {
+                options.ReplyLanguage = replyLanguage;
+                options.ReasoningEffort = reasoningEffort;
+                if (reasoningEffort != null && options.Engine != AiEngine.Codex)
+                {
+                    throw new InvalidOperationException(
+                        "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex.");
+                }
+            });
             services.AddGitRunner();
             services.AddTransient<IVersionControlService, GitHubService>();
             services.AddTransient<IVersionControlService, GiteaService>();
