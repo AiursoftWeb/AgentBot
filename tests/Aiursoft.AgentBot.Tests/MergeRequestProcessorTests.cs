@@ -353,8 +353,65 @@ public class MergeRequestProcessorTests
             It.Is<string>(prompt => prompt.Contains(
                 "Add BOT_TIMEOUT_SECONDS with validation and tests.", StringComparison.Ordinal)),
             It.IsAny<bool>()), Times.Once);
+        const string expectedCommitMessage = """
+            Address MR #1 review: Add BOT_TIMEOUT_SECONDS with validation and tests.
+
+            MR: Bot-owned MR
+            Resolved review request:
+            Add BOT_TIMEOUT_SECONDS with validation and tests.
+
+            Automatically generated fix by Agent Bot.
+            """;
         _workspaceManagerMock.Verify(manager => manager.CommitToBranch(
-            It.IsAny<string>(), It.IsAny<string>(), "feature"), Times.Once);
+            It.IsAny<string>(), expectedCommitMessage, "feature"), Times.Once);
+    }
+
+    [TestMethod]
+    public void BuildReviewCommitDetails_MultilineBrief_NormalizesSummaryAndPreservesTrimmedBody()
+    {
+        var mr = new MergeRequestSearchResult
+        {
+            IID = 18,
+            Title = "Improve generated commit messages"
+        };
+        var decision = new MergeRequestDiscussionDecision(
+            MergeRequestDiscussionAction.ImplementFeedback,
+            "Please implement this feedback.",
+            "  \r\n\tAdd   review\tcontext to the commit subject.  \r\nInclude the MR title and full brief.  \r\n\r\n",
+            21,
+            "discussion-abc");
+
+        var (implementationBrief, commitMessage) = MergeRequestProcessor.BuildReviewCommitDetails(mr, decision);
+
+        const string expectedBrief = "Add   review\tcontext to the commit subject.  \r\nInclude the MR title and full brief.";
+        var expectedCommitMessage = $"""
+            Address MR #18 review: Add review context to the commit subject.
+
+            MR: Improve generated commit messages
+            Resolved review request:
+            {expectedBrief}
+
+            Automatically generated fix by Agent Bot.
+            """;
+        Assert.AreEqual(expectedBrief, implementationBrief);
+        Assert.AreEqual(expectedCommitMessage, commitMessage);
+    }
+
+    [TestMethod]
+    public void BuildReviewCommitDetails_WhitespaceBrief_ThrowsClearError()
+    {
+        var mr = new MergeRequestSearchResult { IID = 18, Title = "Test MR" };
+        var decision = new MergeRequestDiscussionDecision(
+            MergeRequestDiscussionAction.ImplementFeedback,
+            "Please implement this feedback.",
+            " \r\n\t ",
+            21,
+            "discussion-abc");
+
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(
+            () => MergeRequestProcessor.BuildReviewCommitDetails(mr, decision));
+
+        Assert.AreEqual("Accepted MR feedback has no implementation brief.", exception.Message);
     }
 
     [TestMethod]
