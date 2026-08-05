@@ -7,6 +7,7 @@ using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Aiursoft.AgentBot.Services;
 
@@ -259,7 +260,12 @@ Recent discussions and feedback:
             return (BuildConflictPrompt(basePrompt, item.SearchResult, item.TargetBranch), $"Resolve merge conflicts for MR #{item.SearchResult.IID} by merging {item.TargetBranch}\n\nAutomatically generated fix by Agent Bot.");
 
         if (item.HasNewHumanReview)
-            return (BuildReviewPrompt(basePrompt, item.DiscussionDecision), $"Address human review for MR #{item.SearchResult.IID}\n\nAutomatically generated fix by Agent Bot.");
+        {
+            var (implementationBrief, reviewCommitMessage) = BuildReviewCommitDetails(
+                item.SearchResult,
+                item.DiscussionDecision);
+            return (BuildReviewPrompt(basePrompt, implementationBrief), reviewCommitMessage);
+        }
 
         var logs = await GetFailureLogsAsync(server, pipelineProjectId, item.Details.Pipeline!.Id);
         return (BuildFailurePrompt(basePrompt, item.Details, logs), $"Fix pipeline failure for MR #{item.SearchResult.IID}\n\nAutomatically generated fix by Agent Bot.");
@@ -293,14 +299,41 @@ Please analyze the logs and the codebase to fix the failures.
 
     private string BuildReviewPrompt(
         string basePrompt,
-        MergeRequestDiscussionDecision? decision) =>
+        string implementationBrief) =>
         $@"{basePrompt}
 Status: NEW HUMAN REVIEW/COMMENTS.
 A read-only conversation pass determined that the human explicitly requested this code change:
-{decision?.ImplementationBrief ?? throw new InvalidOperationException("Accepted MR feedback has no implementation brief.")}
+{implementationBrief}
 
 Implement exactly the accepted brief. Do not reinterpret rejected findings or turn other discussion into additional work.
 {AiPromptHelper.GetEfMigrationGuidelines()}";
+
+    internal static (string ImplementationBrief, string CommitMessage) BuildReviewCommitDetails(
+        MergeRequestSearchResult mr,
+        MergeRequestDiscussionDecision? decision)
+    {
+        var implementationBrief = decision?.ImplementationBrief?.Trim();
+        if (string.IsNullOrWhiteSpace(implementationBrief))
+        {
+            throw new InvalidOperationException("Accepted MR feedback has no implementation brief.");
+        }
+
+        var firstNonEmptyLine = implementationBrief
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .First(line => !string.IsNullOrWhiteSpace(line));
+        var summary = Regex.Replace(firstNonEmptyLine.Trim(), @"\s+", " ");
+        var commitMessage = $"""
+            Address MR #{mr.IID} review: {summary}
+
+            MR: {mr.Title}
+            Resolved review request:
+            {implementationBrief}
+
+            Automatically generated fix by Agent Bot.
+            """;
+
+        return (implementationBrief, commitMessage);
+    }
 
     private async Task HandleOthersMrFinalizeAsync(WorkflowContext ctx, MergeRequestSearchResult oldMr, string targetBranch, string aiOutput)
     {
