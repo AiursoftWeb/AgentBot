@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Version>10.0.107</Version>
+    <Version>10.0.108</Version>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>agent-bot</AssemblyName>
     <RootNamespace>Aiursoft.AgentBot</RootNamespace>
@@ -29,7 +29,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Aiursoft.AgentBot.Tests" />
+    <InternalsVisibleTo Include="Aiursoft.AgentBot.Tests"></InternalsVisibleTo>
   </ItemGroup>
   <ItemGroup>
     <Content Include="appsettings.json">
@@ -50,7 +50,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Aiursoft.NugetNinja.GitServerBase" Version="10.0.43" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
   </ItemGroup>
 </Project>
