@@ -259,6 +259,87 @@ public class IssuePlanningServiceTests
     }
 
     [TestMethod]
+    public async Task ProcessAsync_InitialAuditOnlyRequest_PostsFindingsWithoutPublishingPlan()
+    {
+        var fixture = CreateFixture(
+            [],
+            "respond",
+            planMarkdown: null,
+            responseMarkdown: "Audit findings:\n1. Authentication state is not synchronized.",
+            issueTitle: "Audit authentication error handling",
+            issueDescription: "Inspect the repository and report findings. Do not modify code.");
+
+        var outcome = await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
+
+        Assert.IsFalse(outcome.Approved);
+        Assert.AreEqual(1, fixture.PostedComments.Count);
+        StringAssert.Contains(fixture.PostedComments[0], "Audit findings:");
+        StringAssert.Contains(fixture.PostedComments[0], "agentbot:discussion:plan-v0:through-note-0");
+        Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:plan:v1", StringComparison.Ordinal));
+        Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:approved", StringComparison.Ordinal));
+        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt =>
+                prompt.Contains("Audit authentication error handling", StringComparison.Ordinal) &&
+                prompt.Contains("perform that work now", StringComparison.Ordinal) &&
+                prompt.Contains("response_markdown", StringComparison.Ordinal))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ProcessAsync_AuditCorrectionAfterErroneousPlan_PostsFindingsWithoutRevisingPlan()
+    {
+        var notes = ExistingPlanWith(new GitLabNote
+        {
+            Id = 22,
+            Body = "我不是让你开始开发。。我是让你立刻审计，并且将结论回复！",
+            Author = new GitLabUser { Username = "issue-owner" },
+            Created_at = Utc(12)
+        });
+        var fixture = CreateFixture(
+            notes,
+            "respond",
+            planMarkdown: null,
+            responseMarkdown: "审计结论：发现一处高危同源存储型 XSS。",
+            issueTitle: "安全审计",
+            issueDescription: "审计普通注册用户可以升级权限的安全问题，并直接回复结论。");
+
+        var outcome = await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
+
+        Assert.IsFalse(outcome.Approved);
+        Assert.AreEqual(1, fixture.PostedComments.Count);
+        StringAssert.Contains(fixture.PostedComments[0], "审计结论：");
+        StringAssert.Contains(fixture.PostedComments[0], "agentbot:discussion:plan-v1:through-note-22");
+        Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:plan:v2", StringComparison.Ordinal));
+        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
+            It.IsAny<string>(),
+            It.Is<string>(prompt =>
+                prompt.Contains("我不是让你开始开发", StringComparison.Ordinal) &&
+                prompt.Contains("an existing plan or earlier bot response does not turn", StringComparison.Ordinal) &&
+                prompt.Contains("do not publish or revise an implementation plan", StringComparison.Ordinal))),
+            Times.Once);
+    }
+
+    [TestMethod]
+    public void BuildPlannerPrompt_AuditOnlyIssue_InstructsWorkerToExecuteAuditAndRespondWithoutPlan()
+    {
+        var issue = new Issue
+        {
+            Iid = 49,
+            Title = "Audit authentication error handling",
+            Description = "Inspect the repository and report security findings. Do not modify code."
+        };
+
+        var prompt = IssuePlanningService.BuildPlannerPrompt(issue, null, [], [], ReplyLanguage.En);
+
+        StringAssert.Contains(prompt, "A read-only deliverable is terminal work, not implementation planning");
+        StringAssert.Contains(prompt, "perform that work now during this invocation");
+        StringAssert.Contains(prompt, "Return the completed findings with respond");
+        StringAssert.Contains(prompt, "leave plan_markdown and approval_note_id null");
+        StringAssert.Contains(prompt, "do not publish or revise an implementation plan");
+    }
+
+    [TestMethod]
     public void BuildPlannerPrompt_IncludesCurrentPlanOnlyOnceAndExcludesOldPlanNote()
     {
         const string canonicalPlan = "CANONICAL-PLAN-ONLY-ONCE";
@@ -366,7 +447,9 @@ public class IssuePlanningServiceTests
         long? approvalNoteId = null,
         string? planMarkdown = "Implement the safe change and test it.",
         string responseMarkdown = "Ready for approval.",
-        ReplyLanguage replyLanguage = ReplyLanguage.En)
+        ReplyLanguage replyLanguage = ReplyLanguage.En,
+        string issueTitle = "Implement feature",
+        string issueDescription = "Feature details")
     {
         var postedComments = new List<string>();
         var handler = new FakeHttpMessageHandler(async req =>
@@ -420,8 +503,8 @@ public class IssuePlanningServiceTests
             Id = 49,
             Iid = 49,
             ProjectId = 101,
-            Title = "Implement feature",
-            Description = "Feature details",
+            Title = issueTitle,
+            Description = issueDescription,
             Author = new User { Login = "issue-owner" }
         };
         var server = new Server

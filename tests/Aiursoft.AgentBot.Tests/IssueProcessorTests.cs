@@ -201,4 +201,131 @@ public class IssueProcessorTests
                 !prompt.Contains("System note")), // System notes should be filtered
             It.IsAny<bool>()), Times.Once);
     }
+
+    [TestMethod]
+    public async Task ProcessAsync_AuditOnlyIssueInPlanningMode_PostsReportWithoutStartingImplementationWorkflow()
+    {
+        var options = Options.Create(new AgentBotOptions
+        {
+            Engine = AiEngine.Codex,
+            PlanningModeEnabled = true,
+            WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotAuditTests")
+        });
+        var server = new Server
+        {
+            Provider = "GitLab",
+            UserName = "agent-bot",
+            Token = "token",
+            EndPoint = "https://gitlab.example.com"
+        };
+        var issue = new Issue
+        {
+            Id = 41,
+            Iid = 41,
+            ProjectId = 101,
+            Title = "Audit authentication",
+            Description = "Inspect the repository and report findings. Do not modify code.",
+            Author = new User { Login = "issue-owner" }
+        };
+        var repository = new Repository
+        {
+            Name = "repo",
+            DefaultBranch = "main",
+            CloneUrl = "https://gitlab.example.com/group/repo.git",
+            Owner = new User { Login = "group" }
+        };
+        var postedComments = new List<string>();
+        var handler = new FakeHttpMessageHandler(async request =>
+        {
+            var url = request.RequestUri!.ToString();
+            if (request.Method == HttpMethod.Post && url.EndsWith("/issues/41/notes", StringComparison.Ordinal))
+            {
+                var formBody = await request.Content!.ReadAsStringAsync();
+                postedComments.Add(Uri.UnescapeDataString(formBody.Split("body=", 2)[1].Replace('+', ' ')));
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+            }
+            if (url.Contains("/issues/41/notes", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+            }
+            if (url.EndsWith("/issues/41", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(new GitLabIssueDto
+                    {
+                        Iid = 41,
+                        State = "opened",
+                        Title = issue.Title
+                    }))
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        var httpClient = new HttpClient(handler);
+        var httpWrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), httpClient);
+        var workspace = new Mock<IAiWorkspaceManager>();
+        var command = new Mock<IAiCommandService>();
+        var ai = new Mock<AiCliService>(command.Object, options, Mock.Of<ILogger<AiCliService>>());
+        ai.Setup(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync((true, JsonSerializer.Serialize(new
+            {
+                action = "respond",
+                approval_note_id = (long?)null,
+                plan_markdown = (string?)null,
+                response_markdown = "Audit findings: no critical issues found."
+            }), string.Empty));
+        var versionControl = new Mock<IVersionControlService>();
+        versionControl.Setup(v => v.GetRepository(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(repository);
+        versionControl.Setup(v => v.HasOpenPullRequestForIssue(
+                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+        var workflowEngine = new BotWorkflowEngine(
+            versionControl.Object,
+            workspace.Object,
+            ai.Object,
+            command.Object,
+            options,
+            Mock.Of<ILogger<BotWorkflowEngine>>());
+        var planningService = new IssuePlanningService(
+            workspace.Object,
+            ai.Object,
+            httpWrapper,
+            httpClient,
+            options,
+            Mock.Of<ILogger<IssuePlanningService>>());
+        var processor = new IssueProcessor(
+            versionControl.Object,
+            workflowEngine,
+            planningService,
+            httpWrapper,
+            options,
+            Mock.Of<ILogger<IssueProcessor>>());
+
+        var result = await processor.ProcessAsync(issue, server);
+
+        Assert.IsTrue(result.Success);
+        Assert.AreEqual(1, postedComments.Count);
+        StringAssert.Contains(postedComments[0], "Audit findings: no critical issues found.");
+        StringAssert.Contains(postedComments[0], "agentbot:discussion:plan-v0:through-note-0");
+        ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        ai.Verify(a => a.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        workspace.Verify(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        workspace.Verify(w => w.Push(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        versionControl.Verify(v => v.ForkRepo(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        versionControl.Verify(v => v.CreatePullRequest(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
 }
