@@ -37,7 +37,8 @@ RUN apt-get update && \
       libglib2.0-dev libgtk-4-dev libpcap-dev libvulkan-dev libclang-dev libclang-21-dev \
       glslc spirv-headers libadwaita-1-dev docker.io docker-buildx qemu-user-binfmt-hwe \
       dotnet10 tmux ripgrep fd-find tree curl postgresql-client redis-tools sqlite3 \
-      libsqlite3-dev && \
+      libsqlite3-dev python3-yaml python3-requests python3-httpx python3-rich \
+      python3-dotenv && \
     ln -sf /usr/bin/python3 /usr/local/bin/python && \
     ln -sf /usr/bin/pip3 /usr/local/bin/pip && \
     apt-get clean && \
@@ -60,9 +61,6 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
       apt-get clean && \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
-
-# Install Python dependencies commonly needed by AI coding tasks.
-RUN pip install PyYAML requests httpx rich python-dotenv
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
