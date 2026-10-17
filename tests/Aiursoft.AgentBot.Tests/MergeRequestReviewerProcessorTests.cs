@@ -1,14 +1,12 @@
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Services;
 using Aiursoft.AgentBot.Models;
-using Aiursoft.AgentBot.Services.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Net;
 
@@ -17,13 +15,13 @@ namespace Aiursoft.AgentBot.Tests;
 [TestClass]
 public class MergeRequestReviewerProcessorTests
 {
-    private Mock<IVersionControlService> _versionControlMock = null!;
-    private Mock<IAiWorkspaceManager> _workspaceManagerMock = null!;
+    private StubVersionControlService _versionControlMock = null!;
+    private StubWorkspaceManager _workspaceManagerMock = null!;
     private HttpWrapper _httpWrapper = null!;
-    private Mock<IHttpClientFactory> _httpClientFactoryMock = null!;
-    private Mock<AiCliService> _aiCliServiceMock = null!;
-    private Mock<IAiCommandService> _commandServiceMock = null!;
-    private Mock<ILogger<MergeRequestReviewerProcessor>> _loggerMock = null!;
+    private StubHttpClientFactory _httpClientFactoryMock = null!;
+    private StubAiCliService _aiCliServiceMock = null!;
+    private StubCommandService _commandServiceMock = null!;
+    private ILogger<MergeRequestReviewerProcessor> _loggerMock = null!;
     private IOptions<AgentBotOptions> _options = null!;
     private List<GitLabMergeRequestDto> _gitLabMrList = new();
     private List<GitLabCommit> _commitsList = new();
@@ -41,20 +39,19 @@ public class MergeRequestReviewerProcessorTests
         };
         _options = Options.Create(options);
 
-        _commandServiceMock = new Mock<IAiCommandService>();
-        _versionControlMock = new Mock<IVersionControlService>();
-        _workspaceManagerMock = new Mock<IAiWorkspaceManager>();
-        _workspaceManagerMock
-            .Setup(manager => manager.ResetRepo(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Aiursoft.GitRunner.Models.CloneMode>(),
-                It.IsAny<string>()))
-            .Callback<string, string, string, Aiursoft.GitRunner.Models.CloneMode, string>(
-                (path, _, _, _, _) => Directory.CreateDirectory(path));
-        _aiCliServiceMock = new Mock<AiCliService>(
-            _commandServiceMock.Object,
+        _commandServiceMock = new StubCommandService();
+        _versionControlMock = new StubVersionControlService();
+        _workspaceManagerMock = new StubWorkspaceManager();
+        _workspaceManagerMock.ResetRepoHandler = (path, _, _, _, _) =>
+        {
+            Directory.CreateDirectory(path);
+            return Task.CompletedTask;
+        };
+        _aiCliServiceMock = new StubAiCliService(
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<AiCliService>>().Object);
-        _loggerMock = new Mock<ILogger<MergeRequestReviewerProcessor>>();
+            NullLogger<AiCliService>.Instance);
+        _loggerMock = NullLogger<MergeRequestReviewerProcessor>.Instance;
 
         var handler = new FakeHttpMessageHandler((req) =>
         {
@@ -93,9 +90,9 @@ public class MergeRequestReviewerProcessorTests
         });
 
         var client = new HttpClient(handler);
-        _httpWrapper = new HttpWrapper(new Mock<ILogger<HttpWrapper>>().Object, client);
-        _httpClientFactoryMock = new Mock<IHttpClientFactory>();
-        _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(client);
+        _httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, client);
+        _httpClientFactoryMock = new StubHttpClientFactory();
+        _httpClientFactoryMock.Create = () => client;
     }
 
     [TestMethod]
@@ -157,58 +154,47 @@ public class MergeRequestReviewerProcessorTests
             Name = "repo"
         };
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
 
-        _versionControlMock
-            .Setup(v => v.GetMergeRequestDetails(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new DetailedMergeRequest());
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(new DetailedMergeRequest());
 
-        _aiCliServiceMock
-            .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .Callback<string, string, bool>((path, _, _) =>
-            {
-                File.WriteAllText(Path.Combine(path, "review.md"), "This is a great MR!");
-            })
-            .ReturnsAsync((true, "AI reviewed", ""));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (workPath, _, _) =>
+        {
+            File.WriteAllText(Path.Combine(workPath, "review.md"), "This is a great MR!");
+            return Task.FromResult((true, "AI reviewed", ""));
+        };
 
-        _workspaceManagerMock
-            .Setup(w => w.PendingCommit(It.IsAny<string>()))
-            .ReturnsAsync(false); // No changes made by bot
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(false); // No changes made by bot
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
 
         var processor = new MergeRequestReviewerProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             new MergeRequestDiscussionService(
-                _versionControlMock.Object,
-                _workspaceManagerMock.Object,
-                _aiCliServiceMock.Object,
-                _httpClientFactoryMock.Object,
+                _versionControlMock,
+                _workspaceManagerMock,
+                _aiCliServiceMock,
+                _httpClientFactoryMock,
                 _options,
-                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
+                NullLogger<MergeRequestDiscussionService>.Instance),
             _httpWrapper,
-            _httpClientFactoryMock.Object,
+            _httpClientFactoryMock,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessReviewRequestsAsync(server);
 
         // Assert
         Assert.IsTrue(result.Success);
-        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(s => s.Contains("code reviewer") && s.Contains("Simplified Chinese")),
-            It.IsAny<bool>()), Times.Once);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count(call => (call.taskDescription.Contains("code reviewer") && call.taskDescription.Contains("Simplified Chinese"))));
         Assert.HasCount(1, _postedNotes);
         StringAssert.Contains(
             _postedNotes[0],
@@ -266,33 +252,32 @@ public class MergeRequestReviewerProcessorTests
         ];
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
         var processor = new MergeRequestReviewerProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             new MergeRequestDiscussionService(
-                _versionControlMock.Object,
-                _workspaceManagerMock.Object,
-                _aiCliServiceMock.Object,
-                _httpClientFactoryMock.Object,
+                _versionControlMock,
+                _workspaceManagerMock,
+                _aiCliServiceMock,
+                _httpClientFactoryMock,
                 _options,
-                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
+                NullLogger<MergeRequestDiscussionService>.Instance),
             _httpWrapper,
-            _httpClientFactoryMock.Object,
+            _httpClientFactoryMock,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         var result = await processor.ProcessReviewRequestsAsync(server);
 
         Assert.IsTrue(result.Success);
         Assert.IsEmpty(_postedNotes);
-        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        Assert.AreEqual(0, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
     }
 
     [TestMethod]
@@ -345,50 +330,41 @@ public class MergeRequestReviewerProcessorTests
                 ]
             }
         ];
-        _versionControlMock
-            .Setup(service => service.GetRepository(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new Repository
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
             {
                 CloneUrl = "https://gitlab.com/bot-user/repo.git",
                 Name = "repo"
             });
-        _aiCliServiceMock
-            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync((true,
+        _aiCliServiceMock.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true,
                 "{\"action\":\"implement_feedback\",\"addressed_note_ids\":[11],\"response_markdown\":\"我来修改。\",\"implementation_brief\":\"Handle the edge case.\"}",
                 string.Empty));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
         var processor = new MergeRequestReviewerProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             new MergeRequestDiscussionService(
-                _versionControlMock.Object,
-                _workspaceManagerMock.Object,
-                _aiCliServiceMock.Object,
-                _httpClientFactoryMock.Object,
+                _versionControlMock,
+                _workspaceManagerMock,
+                _aiCliServiceMock,
+                _httpClientFactoryMock,
                 _options,
-                new Mock<ILogger<MergeRequestDiscussionService>>().Object),
+                NullLogger<MergeRequestDiscussionService>.Instance),
             _httpWrapper,
-            _httpClientFactoryMock.Object,
+            _httpClientFactoryMock,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         var result = await processor.ProcessReviewRequestsAsync(server);
 
         Assert.IsTrue(result.Success);
-        _aiCliServiceMock.Verify(service => service.InvokePlanningCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt => prompt.Contains("Implementation authority for this invocation: not allowed"))),
-            Times.Once);
-        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("Implementation authority for this invocation: not allowed"))));
+        Assert.AreEqual(0, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
     }
 }

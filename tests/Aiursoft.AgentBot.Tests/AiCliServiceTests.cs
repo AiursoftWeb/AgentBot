@@ -1,9 +1,7 @@
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Services;
-using Aiursoft.AgentBot.Services.Abstractions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aiursoft.AgentBot.Tests;
 
@@ -124,13 +122,13 @@ public class AiCliServiceTests
         try
         {
             var service = new AiCliService(
-                Mock.Of<IAiCommandService>(),
+                new StubCommandService(),
                 Options.Create(new AgentBotOptions
                 {
                     Engine = AiEngine.Claude,
                     ReasoningEffort = CodexReasoningEffort.High
                 }),
-                Mock.Of<ILogger<AiCliService>>());
+                NullLogger<AiCliService>.Instance);
 
             var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => service.InvokeAiCliAsync(workPath, "Implement the requested change.", hideGitFolder: false));
@@ -157,22 +155,13 @@ public class AiCliServiceTests
             string? capturedArg = null;
             IDictionary<string, string?>? capturedEnvironmentVariables = null;
 
-            var commandService = new Mock<IAiCommandService>();
-            commandService
-                .Setup(service => service.RunCommandAsync(
-                    It.IsAny<string>(),
-                    It.IsAny<string>(),
-                    It.IsAny<string>(),
-                    It.IsAny<TimeSpan>(),
-                    It.IsAny<bool>(),
-                    It.IsAny<IDictionary<string, string?>?>()))
-                .Callback<string, string, string, TimeSpan, bool, IDictionary<string, string?>?>(
-                    (_, arg, _, _, _, environmentVariables) =>
-                    {
-                        capturedArg = arg;
-                        capturedEnvironmentVariables = environmentVariables;
-                    })
-                .ReturnsAsync((0, "done", string.Empty));
+            var commandService = new StubCommandService();
+            commandService.RunCommandAsyncHandler = (_, arg, _, _, _, environmentVariables) =>
+            {
+                capturedArg = arg;
+                capturedEnvironmentVariables = environmentVariables;
+                return Task.FromResult((0, "done", string.Empty));
+            };
 
             var options = Options.Create(new AgentBotOptions
             {
@@ -182,9 +171,9 @@ public class AiCliServiceTests
                 ApiKey = "must-not-be-forwarded"
             });
             var service = new AiCliService(
-                commandService.Object,
+                commandService,
                 options,
-                Mock.Of<ILogger<AiCliService>>());
+                NullLogger<AiCliService>.Instance);
 
             var result = planningOnly
                 ? await service.InvokePlanningCliAsync(workPath, "Plan the requested change.")
