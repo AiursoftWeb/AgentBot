@@ -13,6 +13,6 @@ public class AiCommandService(CommandService commandService) : IAiCommandService
         bool useShell = false,
         IDictionary<string, string?>? environmentVariables = null)
     {
-        return commandService.RunCommandAsync(bin, arg, path, timeout, useShell, environmentVariables);
+        return commandService.RunCommandAsync(bin, arg, path, timeout, killTimeoutProcess: true, environmentVariables: environmentVariables);
     }
 }

@@ -191,11 +191,14 @@ public class IssueProcessorTests
     }
 
     [TestMethod]
-    public async Task ProcessAsync_AuditOnlyIssueInPlanningMode_PostsReportWithoutStartingImplementationWorkflow()
+    [DataRow(AiEngine.Codex, "respond")]
+    [DataRow(AiEngine.Copilot, "respond")]
+    [DataRow(AiEngine.Copilot, "publish_plan")]
+    public async Task ProcessAsync_PlanningResult_PostsCommentWithoutStartingImplementationWorkflow(AiEngine engine, string action)
     {
         var options = Options.Create(new AgentBotOptions
         {
-            Engine = AiEngine.Codex,
+            Engine = engine,
             PlanningModeEnabled = true,
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotAuditTests")
         });
@@ -264,9 +267,9 @@ public class IssueProcessorTests
         var ai = new StubAiCliService(command, options, NullLogger<AiCliService>.Instance);
         ai.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true, JsonSerializer.Serialize(new
             {
-                action = "respond",
+                action,
                 approval_note_id = (long?)null,
-                plan_markdown = (string?)null,
+                plan_markdown = action == "publish_plan" ? "Implement the requested change after approval." : null,
                 response_markdown = "Audit findings: no critical issues found."
             }), string.Empty));
         var versionControl = new StubVersionControlService();
@@ -298,8 +301,9 @@ public class IssueProcessorTests
 
         Assert.IsTrue(result.Success);
         Assert.AreEqual(1, postedComments.Count);
-        StringAssert.Contains(postedComments[0], "Audit findings: no critical issues found.");
-        StringAssert.Contains(postedComments[0], "agentbot:discussion:plan-v0:through-note-0");
+        StringAssert.Contains(postedComments[0], action == "publish_plan"
+            ? "agentbot:plan:v1"
+            : "agentbot:discussion:plan-v0:through-note-0");
         Assert.AreEqual(1, ai.InvokePlanningCliAsyncCalls.Count);
         Assert.AreEqual(0, ai.InvokeAiCliAsyncCalls.Count);
         Assert.AreEqual(0, workspace.CommitToBranchCalls.Count);

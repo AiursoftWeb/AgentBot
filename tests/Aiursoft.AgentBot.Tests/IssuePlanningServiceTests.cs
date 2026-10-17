@@ -14,7 +14,9 @@ namespace Aiursoft.AgentBot.Tests;
 public class IssuePlanningServiceTests
 {
     [TestMethod]
-    public async Task ProcessAsync_AuthorizedAuthorApproval_TransitionsToImplementation()
+    [DataRow(AiEngine.Codex)]
+    [DataRow(AiEngine.Copilot)]
+    public async Task ProcessAsync_AuthorizedAuthorApproval_TransitionsToImplementation(AiEngine engine)
     {
         var notes = ExistingPlanWith(new GitLabNote
         {
@@ -23,7 +25,7 @@ public class IssuePlanningServiceTests
             Author = new GitLabUser { Username = "issue-owner" },
             Created_at = Utc(12)
         });
-        var fixture = CreateFixture(notes, "approve_current_plan", 22);
+        var fixture = CreateFixture(notes, "approve_current_plan", 22, engine: engine);
 
         var outcome = await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
 
@@ -35,7 +37,9 @@ public class IssuePlanningServiceTests
     }
 
     [TestMethod]
-    public async Task ProcessAsync_UnauthorizedApproval_DoesNotTransition()
+    [DataRow(AiEngine.Codex)]
+    [DataRow(AiEngine.Copilot)]
+    public async Task ProcessAsync_UnauthorizedApproval_DoesNotTransition(AiEngine engine)
     {
         var notes = ExistingPlanWith(new GitLabNote
         {
@@ -44,7 +48,7 @@ public class IssuePlanningServiceTests
             Author = new GitLabUser { Username = "random-user" },
             Created_at = Utc(12)
         });
-        var fixture = CreateFixture(notes, "approve_current_plan", 23);
+        var fixture = CreateFixture(notes, "approve_current_plan", 23, engine: engine);
 
         var outcome = await fixture.Service.ProcessAsync(fixture.Issue, fixture.Server, fixture.Repository);
 
@@ -431,7 +435,8 @@ public class IssuePlanningServiceTests
         string responseMarkdown = "Ready for approval.",
         ReplyLanguage replyLanguage = ReplyLanguage.En,
         string issueTitle = "Implement feature",
-        string issueDescription = "Feature details")
+        string issueDescription = "Feature details",
+        AiEngine engine = AiEngine.Codex)
     {
         var postedComments = new List<string>();
         var handler = new FakeHttpMessageHandler(async req =>
@@ -455,7 +460,7 @@ public class IssuePlanningServiceTests
         var httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, httpClient);
         var options = Options.Create(new AgentBotOptions
         {
-            Engine = AiEngine.Codex,
+            Engine = engine,
             WorkspaceFolder = Path.Combine(Path.GetTempPath(), "AgentBotPlanningTests"),
             Reviewer = "trusted-reviewer",
             ReplyLanguage = replyLanguage

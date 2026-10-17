@@ -15,7 +15,7 @@ public class AiCliServiceTests
             () => AgentBotOptions.RejectRemovedEngine("gEmInI"));
 
         StringAssert.Contains(exception.Message, "no longer supported");
-        StringAssert.Contains(exception.Message, "Claude or Codex");
+        StringAssert.Contains(exception.Message, "Claude, Codex, or Copilot");
     }
 
     [TestMethod]
@@ -23,6 +23,7 @@ public class AiCliServiceTests
     {
         AgentBotOptions.RejectRemovedEngine("Claude");
         AgentBotOptions.RejectRemovedEngine("Codex");
+        AgentBotOptions.RejectRemovedEngine("Copilot");
     }
 
     [TestMethod]
@@ -135,6 +136,83 @@ public class AiCliServiceTests
 
             StringAssert.Contains(exception.Message, "AgentBot__ReasoningEffort");
             StringAssert.Contains(exception.Message, "Codex");
+        }
+        finally
+        {
+            Directory.Delete(workPath, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InvokeCopilot_WithGateway_UsesVirtualModelAndPreservesTask(bool planningOnly)
+    {
+        var workPath = Path.Combine(Path.GetTempPath(), $"AgentBotCopilotTests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(workPath, ".git"));
+        const string task = "Inspect `literal` and $(literal), quotes \" and ' and a newline.\nReturn JSON.";
+        try
+        {
+            var command = new StubCommandService();
+            string? taskFile = null;
+            command.RunCommandAsyncHandler = async (_, arg, path, timeout, _, environment) =>
+            {
+                Assert.AreEqual(workPath, path);
+                Assert.AreEqual(TimeSpan.FromMinutes(7), timeout);
+                StringAssert.Contains(arg, "copilot --yolo --no-ask-user --silent --no-color --effort=xhigh < '");
+                Assert.IsFalse(arg.Contains("--model", StringComparison.Ordinal));
+                Assert.AreEqual("aiursoft-codex:latest", environment!["COPILOT_MODEL"]);
+                Assert.AreEqual("https://gateway.example/v1", environment["COPILOT_PROVIDER_BASE_URL"]);
+                Assert.AreEqual("test-key", environment["COPILOT_PROVIDER_API_KEY"]);
+                Assert.IsFalse(arg.Contains("test-key", StringComparison.Ordinal));
+                Assert.AreEqual(planningOnly, Directory.Exists(Path.Combine(workPath, ".git")));
+                taskFile = arg.Split(" < '", 2)[1].Split('\'')[0];
+                Assert.AreEqual(task, await File.ReadAllTextAsync(taskFile));
+                return (0, "{\"action\":\"respond\"}", string.Empty);
+            };
+            var service = new AiCliService(command, Options.Create(new AgentBotOptions
+            {
+                Engine = AiEngine.Copilot,
+                ApiEndpoint = "https://gateway.example/v1",
+                ApiKey = "test-key",
+                Model = "aiursoft-codex:latest",
+                ReasoningEffort = CodexReasoningEffort.XHigh,
+                AiTimeout = TimeSpan.FromMinutes(7)
+            }), NullLogger<AiCliService>.Instance);
+            var result = planningOnly
+                ? await service.InvokePlanningCliAsync(workPath, task)
+                : await service.InvokeAiCliAsync(workPath, task, hideGitFolder: true);
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual("{\"action\":\"respond\"}", result.Output);
+            Assert.IsTrue(Directory.Exists(Path.Combine(workPath, ".git")));
+            Assert.IsNotNull(taskFile);
+            Assert.IsFalse(File.Exists(taskFile));
+        }
+        finally
+        {
+            Directory.Delete(workPath, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task InvokeCopilot_Failure_RestoresGitAndReportsError()
+    {
+        var workPath = Path.Combine(Path.GetTempPath(), $"AgentBotCopilotTests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(workPath, ".git"));
+        try
+        {
+            var command = new StubCommandService
+            {
+                RunCommandAsyncHandler = (_, _, _, _, _, _) => Task.FromResult((1, "", "Authentication failed"))
+            };
+            var service = new AiCliService(command, Options.Create(new AgentBotOptions
+            {
+                Engine = AiEngine.Copilot
+            }), NullLogger<AiCliService>.Instance);
+            var result = await service.InvokeAiCliAsync(workPath, "Inspect the repo.", hideGitFolder: true);
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual("Authentication failed", result.Error);
+            Assert.IsTrue(Directory.Exists(Path.Combine(workPath, ".git")));
         }
         finally
         {

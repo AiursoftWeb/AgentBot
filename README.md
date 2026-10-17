@@ -34,11 +34,30 @@ The bot supports multiple AI backends via the `Engine` configuration:
 | Engine | CLI | Authentication |
 |--------|-----|----------------|
 | `Claude` | `claude --dangerously-skip-permissions --print` | API key |
+| `Copilot` | `copilot --yolo --no-ask-user --silent` (task on stdin) | Custom provider API key (BYOK) |
 | `Codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | ChatGPT device login persisted under `CODEX_HOME` |
 
 When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
 
 When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration. `ReasoningEffort` optionally passes an explicit `model_reasoning_effort` override to every Codex invocation.
+
+For `Copilot`, use a virtual model on your OpenAI-compatible gateway. `ApiEndpoint`, `ApiKey`, and `Model` override `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, and `COPILOT_MODEL` for the child process when set. Otherwise the CLI inherits its native environment. Token budgets and wire protocol use native Copilot environment variables:
+
+```bash
+export AgentBot__Engine=Copilot
+export AgentBot__ApiEndpoint=https://ollama.aiursoft.com/v1
+export AgentBot__ApiKey="$GATEWAY_API_KEY"
+export AgentBot__Model=aiursoft-codex:latest
+export AgentBot__ReasoningEffort=xhigh
+export COPILOT_PROVIDER_MAX_PROMPT_TOKENS=922000
+export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=128000
+export COPILOT_PROVIDER_WIRE_API=responses
+# Optional: use only the custom provider, without contacting GitHub.
+export COPILOT_OFFLINE=true
+agent-bot
+```
+
+Pass these variables into the container for Docker use. No GitHub subscription login is needed for BYOK. Keep the key in protected runtime configuration. AgentBot does not translate virtual model names to physical models; the gateway owns that mapping. Each task starts a fresh CLI invocation, reads its prompt from a temporary file, and exits without asking for interactive input. `--yolo` grants tool, path, and URL permissions inside the existing container boundary. Copilot maps `ReasoningEffort` to `--effort`, including `xhigh`.
 
 ## Configuration
 
@@ -77,16 +96,16 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 
 | Key | Env var | Required | Description |
 |-----|---------|----------|-------------|
-| `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default) or `Claude` |
+| `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default), `Claude`, or `Copilot` |
 | `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
-| `Model` | `AgentBot__Model` | No | Optional model name passed to the selected CLI with `--model` |
-| `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex only | Optional Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
-| `ApiKey` | `AgentBot__ApiKey` | Claude only | API key for the AI provider; not used by Codex |
-| `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude only | Custom API base URL for Anthropic-compatible endpoints |
+| `Model` | `AgentBot__Model` | No | Optional model name: `--model` for Claude/Codex, `COPILOT_MODEL` for Copilot |
+| `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex/Copilot | Optional reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
+| `ApiKey` | `AgentBot__ApiKey` | Claude/Copilot | Provider API key; not used by Codex |
+| `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude/Copilot | Anthropic-compatible base URL for Claude; OpenAI-compatible base URL for Copilot |
 | `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
 | `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
 | `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
-| `PlanningModeEnabled` | `AgentBot__PlanningModeEnabled` | No | For Codex + GitLab issues, require an approved plan before implementation (default: `true`) |
+| `PlanningModeEnabled` | `AgentBot__PlanningModeEnabled` | No | For Codex/Copilot + GitLab issues, require an approved plan before implementation (default: `true`) |
 | `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea` |
 | `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
 | `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
@@ -118,15 +137,15 @@ Servers__0__Token=glpat-...
 
 ### GitLab issue planning and approval
 
-With Codex and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs without Codex's inner sandbox because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
+With Codex or Copilot and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs with full tool permissions because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
 
-Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to Codex once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
+Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to the planning worker once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
 
 Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; any value other than `en` or `zh` stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
 
 The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
 
-After approval, AgentBot starts a separate write-enabled implementation workflow using the approved plan as locked scope. Automatically generated pipeline-recovery issues bypass planning to avoid an unattended approval deadlock. Planning mode currently applies only to Codex on GitLab; other engines and providers retain the existing immediate implementation workflow.
+After approval, AgentBot starts a separate write-enabled implementation workflow using the approved plan as locked scope. Automatically generated pipeline-recovery issues bypass planning to avoid an unattended approval deadlock. Planning mode currently applies to Codex and Copilot on GitLab; other engines and providers retain the existing immediate implementation workflow.
 
 ## Installation
 
