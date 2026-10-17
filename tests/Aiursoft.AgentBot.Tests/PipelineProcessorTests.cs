@@ -3,9 +3,8 @@ using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Net;
 
@@ -14,10 +13,10 @@ namespace Aiursoft.AgentBot.Tests;
 [TestClass]
 public class PipelineProcessorTests
 {
-    private Mock<IVersionControlService> _versionControlMock = null!;
-    private Mock<IHttpClientFactory> _httpClientFactoryMock = null!;
+    private StubVersionControlService _versionControlMock = null!;
+    private StubHttpClientFactory _httpClientFactoryMock = null!;
     private HttpWrapper _httpWrapper = null!;
-    private Mock<ILogger<PipelineProcessor>> _loggerMock = null!;
+    private ILogger<PipelineProcessor> _loggerMock = null!;
     private List<GitLabProjectDto> _starredProjects = new();
     private List<GitLabPipelineDto> _pipelines = new();
     private List<GitLabIssueDto> _existingIssues = new();
@@ -30,9 +29,9 @@ public class PipelineProcessorTests
     [TestInitialize]
     public void SetUp()
     {
-        _versionControlMock = new Mock<IVersionControlService>();
-        _loggerMock = new Mock<ILogger<PipelineProcessor>>();
-        _httpClientFactoryMock = new Mock<IHttpClientFactory>();
+        _versionControlMock = new StubVersionControlService();
+        _loggerMock = NullLogger<PipelineProcessor>.Instance;
+        _httpClientFactoryMock = new StubHttpClientFactory();
 
         var handler = new FakeHttpMessageHandler((req) =>
         {
@@ -100,8 +99,8 @@ public class PipelineProcessorTests
         });
 
         var client = new HttpClient(handler);
-        _httpWrapper = new HttpWrapper(new Mock<ILogger<HttpWrapper>>().Object, client);
-        _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(handler));
+        _httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, client);
+        _httpClientFactoryMock.Create = () => new HttpClient(handler);
     }
 
     [TestMethod]
@@ -129,19 +128,15 @@ public class PipelineProcessorTests
         _existingIssues = new List<GitLabIssueDto>();
         _botUser = new GitLabUser { Id = 123, Username = "bot-user" };
 
-        _versionControlMock
-            .Setup(v => v.GetPipelineJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new List<PipelineJob> { new PipelineJob { Id = 1, Name = "test", Status = "failed" } });
+        _versionControlMock.GetPipelineJobsHandler = (_, _, _, _) => Task.FromResult<IReadOnlyCollection<PipelineJob>>(new List<PipelineJob> { new PipelineJob { Id = 1, Name = "test", Status = "failed" } });
 
-        _versionControlMock
-            .Setup(v => v.GetJobLog(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync("Build error log");
+        _versionControlMock.GetJobLogHandler = (_, _, _, _) => Task.FromResult("Build error log");
 
         var processor = new PipelineProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             _httpWrapper,
-            _httpClientFactoryMock.Object,
-            _loggerMock.Object);
+            _httpClientFactoryMock,
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessStarredProjectsAsync(server);
@@ -186,10 +181,10 @@ public class PipelineProcessorTests
         };
 
         var processor = new PipelineProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             _httpWrapper,
-            _httpClientFactoryMock.Object,
-            _loggerMock.Object);
+            _httpClientFactoryMock,
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessStarredProjectsAsync(server);
@@ -229,10 +224,10 @@ public class PipelineProcessorTests
         _relatedMRs = new List<GitLabMergeRequestDto>();
 
         var processor = new PipelineProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             _httpWrapper,
-            _httpClientFactoryMock.Object,
-            _loggerMock.Object);
+            _httpClientFactoryMock,
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessStarredProjectsAsync(server);
@@ -280,10 +275,10 @@ public class PipelineProcessorTests
         _capturedMrCloseRequest = null;
 
         var processor = new PipelineProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             _httpWrapper,
-            _httpClientFactoryMock.Object,
-            _loggerMock.Object);
+            _httpClientFactoryMock,
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessStarredProjectsAsync(server);

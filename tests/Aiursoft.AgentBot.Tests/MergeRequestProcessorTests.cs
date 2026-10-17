@@ -1,14 +1,12 @@
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Services;
 using Aiursoft.AgentBot.Models;
-using Aiursoft.AgentBot.Services.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Net;
 
@@ -26,13 +24,13 @@ public class FakeHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMe
 [TestClass]
 public class MergeRequestProcessorTests
 {
-    private Mock<IVersionControlService> _versionControlMock = null!;
-    private Mock<IAiWorkspaceManager> _workspaceManagerMock = null!;
+    private StubVersionControlService _versionControlMock = null!;
+    private StubWorkspaceManager _workspaceManagerMock = null!;
     private HttpWrapper _httpWrapper = null!;
     private MergeRequestDiscussionService _discussionService = null!;
-    private Mock<AiCliService> _aiCliServiceMock = null!;
-    private Mock<IAiCommandService> _commandServiceMock = null!;
-    private Mock<ILogger<MergeRequestProcessor>> _loggerMock = null!;
+    private StubAiCliService _aiCliServiceMock = null!;
+    private StubCommandService _commandServiceMock = null!;
+    private ILogger<MergeRequestProcessor> _loggerMock = null!;
     private IOptions<AgentBotOptions> _options = null!;
     private List<GitLabMergeRequestDto> _gitLabMrList = new();
     private List<GitLabDiscussion> _gitLabDiscussions = new();
@@ -52,18 +50,18 @@ public class MergeRequestProcessorTests
         };
         _options = Options.Create(options);
 
-        _commandServiceMock = new Mock<IAiCommandService>();
+        _commandServiceMock = new StubCommandService();
 
-        _versionControlMock = new Mock<IVersionControlService>();
+        _versionControlMock = new StubVersionControlService();
 
-        _workspaceManagerMock = new Mock<IAiWorkspaceManager>();
+        _workspaceManagerMock = new StubWorkspaceManager();
 
-        _aiCliServiceMock = new Mock<AiCliService>(
-            _commandServiceMock.Object,
+        _aiCliServiceMock = new StubAiCliService(
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<AiCliService>>().Object);
+            NullLogger<AiCliService>.Instance);
 
-        _loggerMock = new Mock<ILogger<MergeRequestProcessor>>();
+        _loggerMock = NullLogger<MergeRequestProcessor>.Instance;
 
         // Mock HttpWrapper by mocking HttpClient
         var handler = new FakeHttpMessageHandler((req) =>
@@ -136,17 +134,16 @@ public class MergeRequestProcessorTests
         });
 
         var client = new HttpClient(handler);
-        _httpWrapper = new HttpWrapper(new Mock<ILogger<HttpWrapper>>().Object, client);
-        var httpClientFactory = new Mock<IHttpClientFactory>();
-        httpClientFactory.Setup(factory => factory.CreateClient(It.IsAny<string>()))
-            .Returns(() => new HttpClient(handler, disposeHandler: false));
+        _httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, client);
+        var httpClientFactory = new StubHttpClientFactory();
+        httpClientFactory.Create = () => new HttpClient(handler, disposeHandler: false);
         _discussionService = new MergeRequestDiscussionService(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            httpClientFactory.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            httpClientFactory,
             _options,
-            new Mock<ILogger<MergeRequestDiscussionService>>().Object);
+            NullLogger<MergeRequestDiscussionService>.Instance);
     }
 
     [TestMethod]
@@ -199,39 +196,31 @@ public class MergeRequestProcessorTests
             }
         ];
 
-        _versionControlMock
-            .Setup(service => service.GetRepository(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new Repository
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
             {
                 Name = "repo",
                 CloneUrl = "https://gitlab.com/bot-user/repo.git",
                 DefaultBranch = "main"
             });
-        _versionControlMock
-            .Setup(service => service.GetMergeRequestDetails(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new DetailedMergeRequest());
-        _aiCliServiceMock
-            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync((true,
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(new DetailedMergeRequest());
+        _aiCliServiceMock.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true,
                 "{\"action\":\"dismiss_finding\",\"addressed_note_ids\":[11],\"response_markdown\":\"明白，这个场景不纳入本次修改。\",\"implementation_brief\":null}",
                 string.Empty));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         var firstResult = await processor.ProcessMergeRequestsAsync(server);
         var secondResult = await processor.ProcessMergeRequestsAsync(server);
@@ -241,13 +230,9 @@ public class MergeRequestProcessorTests
         Assert.HasCount(1, _postedNotes);
         StringAssert.Contains(_postedNotes[0], "agentbot:mr-discussion:v1:through-note-11");
         StringAssert.EndsWith(_postedNoteUrls[0], "/discussions/discussion-abc/notes");
-        _aiCliServiceMock.Verify(service => service.InvokePlanningCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt => prompt.Contains("不考虑这个情况", StringComparison.Ordinal))), Times.Once);
-        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
-        _workspaceManagerMock.Verify(manager => manager.CommitToBranch(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("不考虑这个情况", StringComparison.Ordinal))));
+        Assert.AreEqual(0, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
+        Assert.AreEqual(0, _workspaceManagerMock.CommitToBranchCalls.Count);
     }
 
     [TestMethod]
@@ -298,61 +283,42 @@ public class MergeRequestProcessorTests
                 ]
             }
         ];
-        _versionControlMock
-            .Setup(service => service.GetRepository(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new Repository
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
             {
                 Name = "repo",
                 CloneUrl = "https://gitlab.com/bot-user/repo.git",
                 DefaultBranch = "main"
             });
-        _versionControlMock
-            .Setup(service => service.GetMergeRequestDetails(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new DetailedMergeRequest());
-        _aiCliServiceMock
-            .Setup(service => service.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync((true,
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(new DetailedMergeRequest());
+        _aiCliServiceMock.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true,
                 "{\"action\":\"implement_feedback\",\"addressed_note_ids\":[21],\"response_markdown\":\"好的，我会增加该配置。\",\"implementation_brief\":\"Add BOT_TIMEOUT_SECONDS with validation and tests.\"}",
                 string.Empty));
-        _aiCliServiceMock
-            .Setup(service => service.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "Implemented", string.Empty));
-        _workspaceManagerMock.Setup(manager => manager.PendingCommit(It.IsAny<string>())).ReturnsAsync(true);
-        _workspaceManagerMock
-            .Setup(manager => manager.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
-        _commandServiceMock
-            .Setup(service => service.RunCommandAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "1", string.Empty));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "Implemented", string.Empty));
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(true);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
+        _commandServiceMock.RunCommandAsyncHandler = (_, _, _, _, _, _) => Task.FromResult((0, "1", string.Empty));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         var result = await processor.ProcessMergeRequestsAsync(server);
 
         Assert.IsTrue(result.Success);
         Assert.HasCount(1, _postedNotes);
-        _aiCliServiceMock.Verify(service => service.InvokeAiCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt => prompt.Contains(
-                "Add BOT_TIMEOUT_SECONDS with validation and tests.", StringComparison.Ordinal)),
-            It.IsAny<bool>()), Times.Once);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count(call => (call.taskDescription.Contains(
+                "Add BOT_TIMEOUT_SECONDS with validation and tests.", StringComparison.Ordinal))));
         const string expectedCommitMessage = """
             Address MR #1 review: Add BOT_TIMEOUT_SECONDS with validation and tests.
 
@@ -362,8 +328,7 @@ public class MergeRequestProcessorTests
 
             Automatically generated fix by Agent Bot.
             """;
-        _workspaceManagerMock.Verify(manager => manager.CommitToBranch(
-            It.IsAny<string>(), expectedCommitMessage, "feature"), Times.Once);
+        Assert.AreEqual(1, _workspaceManagerMock.CommitToBranchCalls.Count(call => (call.message == expectedCommitMessage) && (call.branch == "feature")));
     }
 
     [TestMethod]
@@ -464,63 +429,39 @@ public class MergeRequestProcessorTests
             ""Stage"": ""test""
         }", _jsonOptions)!;
 
-        _versionControlMock
-            .Setup(v => v.GetMergeRequestDetails(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(detailedMr);
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(detailedMr);
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
 
-        _versionControlMock
-            .Setup(v => v.GetPipelineJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new List<PipelineJob> { failedJob });
+        _versionControlMock.GetPipelineJobsHandler = (_, _, _, _) => Task.FromResult<IReadOnlyCollection<PipelineJob>>(new List<PipelineJob> { failedJob });
 
-        _versionControlMock
-            .Setup(v => v.GetJobLog(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync("Build failed at line 42");
+        _versionControlMock.GetJobLogHandler = (_, _, _, _) => Task.FromResult("Build failed at line 42");
 
-        _versionControlMock
-            .Setup(v => v.RepoExists(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _versionControlMock.RepoExistsHandler = (_, _, _, _) => Task.FromResult(true);
 
-        _aiCliServiceMock
-            .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "AI output", ""));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "AI output", ""));
 
-        _workspaceManagerMock
-            .Setup(w => w.PendingCommit(It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(true);
 
-        _workspaceManagerMock
-            .Setup(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
 
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "1", ""));
+        _commandServiceMock.RunCommandAsyncHandler = (_, _, _, _, _, _) => Task.FromResult((0, "1", ""));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
 
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
 
         // Act
@@ -530,19 +471,8 @@ public class MergeRequestProcessorTests
         Assert.IsTrue(result.Success);
 
         // Verify new MR creation
-        _versionControlMock.Verify(v => v.CreatePullRequest(
-            It.IsAny<string>(),
-            It.IsAny<string>(),
-            It.IsAny<string>(),
-            It.IsAny<string>(),
-            It.IsAny<string>(),
-            It.Is<string>(title => title.Contains("[Bot 修复]", StringComparison.Ordinal)),
-            It.Is<string>(body => body.Contains("## 修改内容", StringComparison.Ordinal)),
-            It.IsAny<string>()), Times.Once);
-        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt => prompt.Contains("Simplified Chinese", StringComparison.Ordinal)),
-            It.IsAny<bool>()), Times.Once);
+        Assert.AreEqual(1, _versionControlMock.CreatePullRequestCalls.Count(call => (call.title.Contains("[Bot 修复]", StringComparison.Ordinal)) && (call.body.Contains("## 修改内容", StringComparison.Ordinal))));
+        Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count(call => (call.taskDescription.Contains("Simplified Chinese", StringComparison.Ordinal))));
     }
 
     [TestMethod]
@@ -592,59 +522,37 @@ public class MergeRequestProcessorTests
             ""Stage"": ""test""
         }", _jsonOptions)!;
 
-        _versionControlMock
-            .Setup(v => v.GetMergeRequestDetails(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(detailedMr);
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(detailedMr);
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
 
-        _versionControlMock
-            .Setup(v => v.GetPipelineJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new List<PipelineJob> { failedJob });
+        _versionControlMock.GetPipelineJobsHandler = (_, _, _, _) => Task.FromResult<IReadOnlyCollection<PipelineJob>>(new List<PipelineJob> { failedJob });
 
-        _versionControlMock
-            .Setup(v => v.GetJobLog(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync("Build failed");
+        _versionControlMock.GetJobLogHandler = (_, _, _, _) => Task.FromResult("Build failed");
 
-        _aiCliServiceMock
-            .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "AI output", ""));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "AI output", ""));
 
-        _workspaceManagerMock
-            .Setup(w => w.PendingCommit(It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(true);
 
-        _workspaceManagerMock
-            .Setup(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
 
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "1", ""));
+        _commandServiceMock.RunCommandAsyncHandler = (_, _, _, _, _, _) => Task.FromResult((0, "1", ""));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
 
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessMergeRequestsAsync(server);
@@ -653,10 +561,10 @@ public class MergeRequestProcessorTests
         Assert.IsTrue(result.Success);
 
         // Verify push to original branch
-        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), true), Times.Once);
+        Assert.AreEqual(1, _workspaceManagerMock.PushCalls.Count(call => (call.force)));
 
         // Verify NO new MR was created
-        _versionControlMock.Verify(v => v.CreatePullRequest(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.AreEqual(0, _versionControlMock.CreatePullRequestCalls.Count);
     }
 
     [TestMethod]
@@ -704,98 +612,49 @@ public class MergeRequestProcessorTests
             Owner = new User { Login = "target-group" }
         };
 
-        _versionControlMock
-            .Setup(v => v.GetMergeRequestDetails(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(detailedMr);
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(detailedMr);
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), "101", It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(targetRepository);
+        _versionControlMock.GetRepositoryHandler = (_, org, _, _) => Task.FromResult(org switch
+        {
+            "101" => targetRepository,
+            "102" => sourceRepository,
+            _ => null!
+        });
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), "102", It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(sourceRepository);
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "AI output", ""));
 
-        _aiCliServiceMock
-            .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "AI output", ""));
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(true);
 
-        _workspaceManagerMock
-            .Setup(w => w.PendingCommit(It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
 
-        _workspaceManagerMock
-            .Setup(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
-
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                It.IsAny<string>(),
-                "rev-list --count HEAD ^origin/conflict-branch",
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "1", ""));
-
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                "git",
-                "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main",
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "", ""));
-
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                "git",
-                "merge refs/remotes/agentbot-target/main",
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((1, "CONFLICT (content): Merge conflict in file.txt", ""));
-
-        _commandServiceMock
-            .SetupSequence(c => c.RunCommandAsync(
-                "git",
-                "diff --name-only --diff-filter=U",
-                It.IsAny<string>(),
-                It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(),
-                It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "file.txt", ""))
-            .ReturnsAsync((0, "", ""));
-
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                "git", "rev-parse -q --verify MERGE_HEAD", It.IsAny<string>(), It.IsAny<TimeSpan>(),
-                It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((1, "", ""));
-
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(
-                "git", "merge-base --is-ancestor refs/remotes/agentbot-target/main HEAD", It.IsAny<string>(),
-                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "", ""));
+        var conflictedFiles = new Queue<string>(["file.txt", ""]);
+        _commandServiceMock.RunCommandAsyncHandler = (bin, arg, _, _, _, _) =>
+            Task.FromResult((bin, arg) switch
+            {
+                (_, "rev-list --count HEAD ^origin/conflict-branch") => (0, "1", ""),
+                ("git", "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main") => (0, "", ""),
+                ("git", "merge refs/remotes/agentbot-target/main") => (1, "CONFLICT (content): Merge conflict in file.txt", ""),
+                ("git", "diff --name-only --diff-filter=U") => (0, conflictedFiles.Dequeue(), ""),
+                ("git", "rev-parse -q --verify MERGE_HEAD") => (1, "", ""),
+                ("git", "merge-base --is-ancestor refs/remotes/agentbot-target/main HEAD") => (0, "", ""),
+                _ => default
+            });
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
 
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessMergeRequestsAsync(server);
@@ -803,9 +662,9 @@ public class MergeRequestProcessorTests
         // Assert
         Assert.IsTrue(result.Success);
 
-        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
-        _commandServiceMock.Verify(c => c.RunCommandAsync("git", "merge refs/remotes/agentbot-target/main", It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()), Times.Once);
-        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), "conflict-branch", It.IsAny<string>(), true), Times.Once);
+        Assert.AreEqual(1, _commandServiceMock.RunCommandAsyncCalls.Count(call => (call.bin == "git") && (call.arg == "fetch --no-tags https://gitlab.com/target-group/repo.git +refs/heads/main:refs/remotes/agentbot-target/main")));
+        Assert.AreEqual(1, _commandServiceMock.RunCommandAsyncCalls.Count(call => (call.bin == "git") && (call.arg == "merge refs/remotes/agentbot-target/main")));
+        Assert.AreEqual(1, _workspaceManagerMock.PushCalls.Count(call => (call.branch == "conflict-branch") && (call.force)));
     }
 
     [TestMethod]
@@ -826,30 +685,22 @@ public class MergeRequestProcessorTests
             Name = "repo",
             Owner = new User { Login = "bot-user" }
         };
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), "102", It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
-        _workspaceManagerMock.Setup(w => w.PendingCommit(It.IsAny<string>())).ReturnsAsync(true);
-        _workspaceManagerMock.Setup(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
-        _aiCliServiceMock.Setup(a => a.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "attempted resolution", ""));
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "", ""));
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync("git", "merge refs/remotes/agentbot-target/main", It.IsAny<string>(),
-                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((1, "CONFLICT", ""));
-        _commandServiceMock
-            .Setup(c => c.RunCommandAsync("git", "diff --name-only --diff-filter=U", It.IsAny<string>(),
-                It.IsAny<TimeSpan>(), It.IsAny<bool>(), It.IsAny<IDictionary<string, string?>>()))
-            .ReturnsAsync((0, "still-conflicted.cs", ""));
+        _versionControlMock.GetRepositoryHandler = (_, org, _, _) =>
+            Task.FromResult(org == "102" ? repository : null!);
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(true);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "attempted resolution", ""));
+        _commandServiceMock.RunCommandAsyncHandler = (bin, arg, _, _, _, _) =>
+            Task.FromResult((bin, arg) switch
+            {
+                ("git", "merge refs/remotes/agentbot-target/main") => (1, "CONFLICT", ""),
+                ("git", "diff --name-only --diff-filter=U") => (0, "still-conflicted.cs", ""),
+                _ => (0, "", "")
+            });
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object, _workspaceManagerMock.Object, _aiCliServiceMock.Object,
-            _commandServiceMock.Object, _options, new Mock<ILogger<BotWorkflowEngine>>().Object);
+            _versionControlMock, _workspaceManagerMock, _aiCliServiceMock,
+            _commandServiceMock, _options, NullLogger<BotWorkflowEngine>.Instance);
 
         var result = await workflowEngine.ExecuteAsync(new WorkflowContext
         {
@@ -866,8 +717,7 @@ public class MergeRequestProcessorTests
         });
 
         Assert.IsFalse(result.Result.Success);
-        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<bool>()), Times.Never);
+        Assert.AreEqual(0, _workspaceManagerMock.PushCalls.Count);
     }
 
     [TestMethod]
@@ -909,38 +759,30 @@ public class MergeRequestProcessorTests
             Owner = new User { Login = "bot-user" }
         };
 
-        _versionControlMock
-            .Setup(v => v.GetMergeRequestDetails(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(detailedMr);
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(detailedMr);
 
-        _versionControlMock
-            .Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
 
-        _versionControlMock
-            .Setup(v => v.GetPipelineJobs(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>()))
-            .ReturnsAsync(new List<PipelineJob>());
+        _versionControlMock.GetPipelineJobsHandler = (_, _, _, _) => Task.FromResult<IReadOnlyCollection<PipelineJob>>(new List<PipelineJob>());
 
         // Mock AI engine failure.
-        _aiCliServiceMock
-            .Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((false, "AI failed", "Error message"));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((false, "AI failed", "Error message"));
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<BotWorkflowEngine>>().Object);
+            NullLogger<BotWorkflowEngine>.Instance);
 
         var processor = new MergeRequestProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             _discussionService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         // Act
         var result = await processor.ProcessMergeRequestsAsync(server);
@@ -949,7 +791,7 @@ public class MergeRequestProcessorTests
         Assert.IsTrue(result.Success); // Processor itself succeeds because it handles individual MR failures
 
         // Verify NO commit and NO push happened
-        _workspaceManagerMock.Verify(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        _workspaceManagerMock.Verify(w => w.Push(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        Assert.AreEqual(0, _workspaceManagerMock.CommitToBranchCalls.Count);
+        Assert.AreEqual(0, _workspaceManagerMock.PushCalls.Count);
     }
 }

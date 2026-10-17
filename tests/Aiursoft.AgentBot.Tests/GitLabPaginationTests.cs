@@ -2,8 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Aiursoft.AgentBot.Services;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Microsoft.Extensions.Logging;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aiursoft.AgentBot.Tests;
 
@@ -27,7 +26,7 @@ public class GitLabPaginationTests
                 Content = new StringContent(JsonSerializer.Serialize(items))
             });
         });
-        var wrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), new HttpClient(handler));
+        var wrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, new HttpClient(handler));
 
         var result = await GitLabPagination.GetAllAsync<int>(
             wrapper,
@@ -51,7 +50,7 @@ public class GitLabPaginationTests
                 Content = new StringContent("[]")
             });
         });
-        var wrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), new HttpClient(handler));
+        var wrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, new HttpClient(handler));
 
         await GitLabPagination.GetAllAsync<int>(wrapper, "https://gitlab.example.com/notes?sort=asc", "token");
 

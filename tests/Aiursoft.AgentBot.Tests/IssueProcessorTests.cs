@@ -1,13 +1,11 @@
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.AgentBot.Services;
-using Aiursoft.AgentBot.Services.Abstractions;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Aiursoft.NugetNinja.GitServerBase.Services.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Net;
 
@@ -16,13 +14,13 @@ namespace Aiursoft.AgentBot.Tests;
 [TestClass]
 public class IssueProcessorTests
 {
-    private Mock<IVersionControlService> _versionControlMock = null!;
-    private Mock<IAiWorkspaceManager> _workspaceManagerMock = null!;
+    private StubVersionControlService _versionControlMock = null!;
+    private StubWorkspaceManager _workspaceManagerMock = null!;
     private HttpWrapper _httpWrapper = null!;
-    private Mock<AiCliService> _aiCliServiceMock = null!;
-    private Mock<IAiCommandService> _commandServiceMock = null!;
-    private Mock<ILogger<IssueProcessor>> _loggerMock = null!;
-    private Mock<ILogger<BotWorkflowEngine>> _workflowLoggerMock = null!;
+    private StubAiCliService _aiCliServiceMock = null!;
+    private StubCommandService _commandServiceMock = null!;
+    private ILogger<IssueProcessor> _loggerMock = null!;
+    private ILogger<BotWorkflowEngine> _workflowLoggerMock = null!;
     private IOptions<AgentBotOptions> _options = null!;
     private IssueProcessor _issueProcessor = null!;
 
@@ -38,17 +36,17 @@ public class IssueProcessorTests
         };
         _options = Options.Create(options);
 
-        _commandServiceMock = new Mock<IAiCommandService>();
-        _versionControlMock = new Mock<IVersionControlService>();
-        _workspaceManagerMock = new Mock<IAiWorkspaceManager>();
-        _workflowLoggerMock = new Mock<ILogger<BotWorkflowEngine>>();
+        _commandServiceMock = new StubCommandService();
+        _versionControlMock = new StubVersionControlService();
+        _workspaceManagerMock = new StubWorkspaceManager();
+        _workflowLoggerMock = NullLogger<BotWorkflowEngine>.Instance;
 
-        _aiCliServiceMock = new Mock<AiCliService>(
-            _commandServiceMock.Object,
+        _aiCliServiceMock = new StubAiCliService(
+            _commandServiceMock,
             _options,
-            new Mock<ILogger<AiCliService>>().Object);
+            NullLogger<AiCliService>.Instance);
 
-        _loggerMock = new Mock<ILogger<IssueProcessor>>();
+        _loggerMock = NullLogger<IssueProcessor>.Instance;
     }
 
     [TestMethod]
@@ -141,65 +139,55 @@ public class IssueProcessorTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
-        _httpWrapper = new HttpWrapper(new Mock<ILogger<HttpWrapper>>().Object, new HttpClient(handler));
+        _httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, new HttpClient(handler));
 
-        _versionControlMock.Setup(v => v.GetRepository(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
 
-        _versionControlMock.Setup(v => v.HasOpenPullRequestForIssue(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>()))
-            .ReturnsAsync(false);
+        _versionControlMock.HasOpenPullRequestForIssueHandler = (_, _, _, _) => Task.FromResult(false);
 
-        _versionControlMock.Setup(v => v.RepoExists(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(true);
+        _versionControlMock.RepoExistsHandler = (_, _, _, _) => Task.FromResult(true);
 
-        _versionControlMock.Setup(v => v.GetPushPath(It.IsAny<Server>(), It.IsAny<Repository>()))
-            .Returns("https://gitlab.com/owner/repo.git");
+        _versionControlMock.GetPushPathHandler = (_, _) => "https://gitlab.com/owner/repo.git";
 
-        _versionControlMock.Setup(v => v.GetPullRequests(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(new List<PullRequest>());
+        _versionControlMock.GetPullRequestsHandler = (_, _, _, _, _) => Task.FromResult<IEnumerable<PullRequest>>(new List<PullRequest>());
 
-        _aiCliServiceMock.Setup(g => g.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()))
-            .ReturnsAsync((true, "AI output", ""));
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((true, "AI output", ""));
 
-        _workspaceManagerMock.Setup(w => w.PendingCommit(It.IsAny<string>())).ReturnsAsync(false); // No changes to verify simple flow
+        _workspaceManagerMock.PendingCommitHandler = (_) => Task.FromResult(false); // No changes to verify simple flow
 
         var workflowEngine = new BotWorkflowEngine(
-            _versionControlMock.Object,
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
-            _commandServiceMock.Object,
+            _versionControlMock,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
+            _commandServiceMock,
             _options,
-            _workflowLoggerMock.Object);
+            _workflowLoggerMock);
 
         var planningService = new IssuePlanningService(
-            _workspaceManagerMock.Object,
-            _aiCliServiceMock.Object,
+            _workspaceManagerMock,
+            _aiCliServiceMock,
             _httpWrapper,
             new HttpClient(handler),
             _options,
-            new Mock<ILogger<IssuePlanningService>>().Object);
+            NullLogger<IssuePlanningService>.Instance);
         _issueProcessor = new IssueProcessor(
-            _versionControlMock.Object,
+            _versionControlMock,
             workflowEngine,
             planningService,
             _httpWrapper,
             _options,
-            _loggerMock.Object);
+            _loggerMock);
 
         // Act
         await _issueProcessor.ProcessAsync(issue, server);
 
         // Assert
-        _aiCliServiceMock.Verify(g => g.InvokeAiCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt =>
-                prompt.Contains("Comment by @user1") &&
-                prompt.Contains("First comment") &&
-                prompt.Contains("Comment by @user2") &&
-                prompt.Contains("Second comment") &&
-                prompt.Contains("Simplified Chinese") &&
-                !prompt.Contains("System note")), // System notes should be filtered
-            It.IsAny<bool>()), Times.Once);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count(call => (call.taskDescription.Contains("Comment by @user1") &&
+                call.taskDescription.Contains("First comment") &&
+                call.taskDescription.Contains("Comment by @user2") &&
+                call.taskDescription.Contains("Second comment") &&
+                call.taskDescription.Contains("Simplified Chinese") &&
+                !call.taskDescription.Contains("System note"))));
     }
 
     [TestMethod]
@@ -270,46 +258,41 @@ public class IssueProcessorTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
         var httpClient = new HttpClient(handler);
-        var httpWrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), httpClient);
-        var workspace = new Mock<IAiWorkspaceManager>();
-        var command = new Mock<IAiCommandService>();
-        var ai = new Mock<AiCliService>(command.Object, options, Mock.Of<ILogger<AiCliService>>());
-        ai.Setup(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync((true, JsonSerializer.Serialize(new
+        var httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, httpClient);
+        var workspace = new StubWorkspaceManager();
+        var command = new StubCommandService();
+        var ai = new StubAiCliService(command, options, NullLogger<AiCliService>.Instance);
+        ai.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true, JsonSerializer.Serialize(new
             {
                 action = "respond",
                 approval_note_id = (long?)null,
                 plan_markdown = (string?)null,
                 response_markdown = "Audit findings: no critical issues found."
             }), string.Empty));
-        var versionControl = new Mock<IVersionControlService>();
-        versionControl.Setup(v => v.GetRepository(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync(repository);
-        versionControl.Setup(v => v.HasOpenPullRequestForIssue(
-                It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>()))
-            .ReturnsAsync(false);
+        var versionControl = new StubVersionControlService();
+        versionControl.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(repository);
+        versionControl.HasOpenPullRequestForIssueHandler = (_, _, _, _) => Task.FromResult(false);
         var workflowEngine = new BotWorkflowEngine(
-            versionControl.Object,
-            workspace.Object,
-            ai.Object,
-            command.Object,
+            versionControl,
+            workspace,
+            ai,
+            command,
             options,
-            Mock.Of<ILogger<BotWorkflowEngine>>());
+            NullLogger<BotWorkflowEngine>.Instance);
         var planningService = new IssuePlanningService(
-            workspace.Object,
-            ai.Object,
+            workspace,
+            ai,
             httpWrapper,
             httpClient,
             options,
-            Mock.Of<ILogger<IssuePlanningService>>());
+            NullLogger<IssuePlanningService>.Instance);
         var processor = new IssueProcessor(
-            versionControl.Object,
+            versionControl,
             workflowEngine,
             planningService,
             httpWrapper,
             options,
-            Mock.Of<ILogger<IssueProcessor>>());
+            NullLogger<IssueProcessor>.Instance);
 
         var result = await processor.ProcessAsync(issue, server);
 
@@ -317,15 +300,11 @@ public class IssueProcessorTests
         Assert.AreEqual(1, postedComments.Count);
         StringAssert.Contains(postedComments[0], "Audit findings: no critical issues found.");
         StringAssert.Contains(postedComments[0], "agentbot:discussion:plan-v0:through-note-0");
-        ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-        ai.Verify(a => a.InvokeAiCliAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
-        workspace.Verify(w => w.CommitToBranch(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        workspace.Verify(w => w.Push(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
-        versionControl.Verify(v => v.ForkRepo(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        versionControl.Verify(v => v.CreatePullRequest(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.AreEqual(1, ai.InvokePlanningCliAsyncCalls.Count);
+        Assert.AreEqual(0, ai.InvokeAiCliAsyncCalls.Count);
+        Assert.AreEqual(0, workspace.CommitToBranchCalls.Count);
+        Assert.AreEqual(0, workspace.PushCalls.Count);
+        Assert.AreEqual(0, versionControl.ForkRepoCalls.Count);
+        Assert.AreEqual(0, versionControl.CreatePullRequestCalls.Count);
     }
 }

@@ -3,13 +3,10 @@ using System.Text.Json;
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.AgentBot.Services;
-using Aiursoft.AgentBot.Services.Abstractions;
-using Aiursoft.GitRunner.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
 using Aiursoft.NugetNinja.GitServerBase.Services;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aiursoft.AgentBot.Tests;
 
@@ -34,7 +31,7 @@ public class IssuePlanningServiceTests
         StringAssert.Contains(outcome.ApprovedPlan!, "Agent Plan v1");
         Assert.AreEqual(1, fixture.PostedComments.Count);
         StringAssert.Contains(fixture.PostedComments[0], "agentbot:approved:plan-v1:note-22");
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        Assert.AreEqual(1, fixture.Ai.InvokePlanningCliAsyncCalls.Count);
     }
 
     [TestMethod]
@@ -74,10 +71,8 @@ public class IssuePlanningServiceTests
 
         Assert.IsFalse(outcome.Approved);
         Assert.AreEqual(0, fixture.PostedComments.Count);
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        fixture.Workspace.Verify(w => w.ResetRepo(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CloneMode>(), It.IsAny<string>()),
-            Times.Never);
+        Assert.AreEqual(0, fixture.Ai.InvokePlanningCliAsyncCalls.Count);
+        Assert.AreEqual(0, fixture.Workspace.ResetRepoCalls.Count);
     }
 
     [TestMethod]
@@ -96,7 +91,7 @@ public class IssuePlanningServiceTests
 
         Assert.IsTrue(outcome.Approved);
         Assert.AreEqual(0, fixture.PostedComments.Count);
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.AreEqual(0, fixture.Ai.InvokePlanningCliAsyncCalls.Count);
     }
 
     [TestMethod]
@@ -147,10 +142,8 @@ public class IssuePlanningServiceTests
 
         Assert.IsFalse(outcome.Approved);
         Assert.AreEqual(0, fixture.PostedComments.Count);
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        fixture.Workspace.Verify(w => w.ResetRepo(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CloneMode>(), It.IsAny<string>()),
-            Times.Never);
+        Assert.AreEqual(0, fixture.Ai.InvokePlanningCliAsyncCalls.Count);
+        Assert.AreEqual(0, fixture.Workspace.ResetRepoCalls.Count);
     }
 
     [TestMethod]
@@ -235,10 +228,7 @@ public class IssuePlanningServiceTests
 
         StringAssert.Contains(fixture.PostedComments[0], "## Agent 计划 v2");
         StringAssert.Contains(fixture.PostedComments[0], "等待批准");
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt => prompt.Contains("Simplified Chinese", StringComparison.Ordinal))),
-            Times.Once);
+        Assert.AreEqual(1, fixture.Ai.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("Simplified Chinese", StringComparison.Ordinal))));
     }
 
     [TestMethod]
@@ -277,13 +267,9 @@ public class IssuePlanningServiceTests
         StringAssert.Contains(fixture.PostedComments[0], "agentbot:discussion:plan-v0:through-note-0");
         Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:plan:v1", StringComparison.Ordinal));
         Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:approved", StringComparison.Ordinal));
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt =>
-                prompt.Contains("Audit authentication error handling", StringComparison.Ordinal) &&
-                prompt.Contains("perform that work now", StringComparison.Ordinal) &&
-                prompt.Contains("response_markdown", StringComparison.Ordinal))),
-            Times.Once);
+        Assert.AreEqual(1, fixture.Ai.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("Audit authentication error handling", StringComparison.Ordinal) &&
+                call.taskDescription.Contains("perform that work now", StringComparison.Ordinal) &&
+                call.taskDescription.Contains("response_markdown", StringComparison.Ordinal))));
     }
 
     [TestMethod]
@@ -311,13 +297,9 @@ public class IssuePlanningServiceTests
         StringAssert.Contains(fixture.PostedComments[0], "审计结论：");
         StringAssert.Contains(fixture.PostedComments[0], "agentbot:discussion:plan-v1:through-note-22");
         Assert.IsFalse(fixture.PostedComments[0].Contains("agentbot:plan:v2", StringComparison.Ordinal));
-        fixture.Ai.Verify(a => a.InvokePlanningCliAsync(
-            It.IsAny<string>(),
-            It.Is<string>(prompt =>
-                prompt.Contains("我不是让你开始开发", StringComparison.Ordinal) &&
-                prompt.Contains("an existing plan or earlier bot response does not turn", StringComparison.Ordinal) &&
-                prompt.Contains("do not publish or revise an implementation plan", StringComparison.Ordinal))),
-            Times.Once);
+        Assert.AreEqual(1, fixture.Ai.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("我不是让你开始开发", StringComparison.Ordinal) &&
+                call.taskDescription.Contains("an existing plan or earlier bot response does not turn", StringComparison.Ordinal) &&
+                call.taskDescription.Contains("do not publish or revise an implementation plan", StringComparison.Ordinal))));
     }
 
     [TestMethod]
@@ -470,7 +452,7 @@ public class IssuePlanningServiceTests
             };
         });
         var httpClient = new HttpClient(handler);
-        var httpWrapper = new HttpWrapper(Mock.Of<ILogger<HttpWrapper>>(), httpClient);
+        var httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, httpClient);
         var options = Options.Create(new AgentBotOptions
         {
             Engine = AiEngine.Codex,
@@ -478,9 +460,9 @@ public class IssuePlanningServiceTests
             Reviewer = "trusted-reviewer",
             ReplyLanguage = replyLanguage
         });
-        var workspace = new Mock<IAiWorkspaceManager>();
-        var command = new Mock<IAiCommandService>();
-        var ai = new Mock<AiCliService>(command.Object, options, Mock.Of<ILogger<AiCliService>>());
+        var workspace = new StubWorkspaceManager();
+        var command = new StubCommandService();
+        var ai = new StubAiCliService(command, options, NullLogger<AiCliService>.Instance);
         var response = JsonSerializer.Serialize(new
         {
             action,
@@ -488,16 +470,15 @@ public class IssuePlanningServiceTests
             plan_markdown = planMarkdown,
             response_markdown = responseMarkdown
         });
-        ai.Setup(a => a.InvokePlanningCliAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync((true, response, string.Empty));
+        ai.InvokePlanningCliAsyncHandler = (_, _) => Task.FromResult((true, response, string.Empty));
 
         var service = new IssuePlanningService(
-            workspace.Object,
-            ai.Object,
+            workspace,
+            ai,
             httpWrapper,
             httpClient,
             options,
-            Mock.Of<ILogger<IssuePlanningService>>());
+            NullLogger<IssuePlanningService>.Instance);
         var issue = new Issue
         {
             Id = 49,
@@ -543,7 +524,7 @@ public class IssuePlanningServiceTests
         Issue Issue,
         Server Server,
         Repository Repository,
-        Mock<AiCliService> Ai,
-        Mock<IAiWorkspaceManager> Workspace,
+        StubAiCliService Ai,
+        StubWorkspaceManager Workspace,
         List<string> PostedComments);
 }
