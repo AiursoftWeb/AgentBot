@@ -21,10 +21,10 @@ public class AiCliService(
         string workPath,
         string taskDescription)
     {
-        if (_options.Engine != AiEngine.Codex)
+        if (_options.Engine is not (AiEngine.Codex or AiEngine.Copilot))
         {
             throw new NotSupportedException(
-                $"Planning mode is currently supported only for Codex, not {_options.Engine}.");
+                $"Planning mode is currently supported only for Codex or Copilot, not {_options.Engine}.");
         }
 
         return await InvokeAiCliInternalAsync(workPath, taskDescription, hideGitFolder: false, planningOnly: true);
@@ -125,10 +125,10 @@ public class AiCliService(
             ? $" -c 'model_reasoning_effort=\\\"{reasoningEffort.ToString().ToLowerInvariant()}\\\"'"
             : "";
 
-        if (_options.Engine != AiEngine.Codex && _options.ReasoningEffort != null)
+        if (_options.Engine is not (AiEngine.Codex or AiEngine.Copilot) && _options.ReasoningEffort != null)
         {
             throw new InvalidOperationException(
-                "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex.");
+                "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex or Copilot.");
         }
 
         return _options.Engine switch
@@ -143,8 +143,33 @@ public class AiCliService(
                     : $"codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file{modelArg}{reasoningEffortArg} - < {ShellQuote(taskFile)}",
                 null),
 
+            AiEngine.Copilot => (
+                $"copilot --yolo --no-ask-user --silent --no-color{BuildCopilotEffortArg()} < {ShellQuote(taskFile)}",
+                BuildCopilotEnv()),
+
             _ => throw new ArgumentOutOfRangeException(nameof(_options.Engine), $"Unsupported AI engine: {_options.Engine}")
         };
+    }
+
+    private string BuildCopilotEffortArg()
+    {
+        return _options.ReasoningEffort is { } effort
+            ? $" --effort={effort.ToString().ToLowerInvariant()}"
+            : "";
+    }
+
+    private IDictionary<string, string?>? BuildCopilotEnv()
+    {
+        // Native COPILOT_PROVIDER_* variables (including token limits and wire API) are inherited.
+        // Keep the virtual model out of nested shell arguments so it is passed literally.
+        var vars = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+            vars["COPILOT_PROVIDER_API_KEY"] = _options.ApiKey;
+        if (!string.IsNullOrWhiteSpace(_options.ApiEndpoint))
+            vars["COPILOT_PROVIDER_BASE_URL"] = _options.ApiEndpoint;
+        if (!string.IsNullOrWhiteSpace(_options.Model))
+            vars["COPILOT_MODEL"] = _options.Model;
+        return vars.Count > 0 ? vars : null;
     }
 
     private static string ShellQuote(string value) => $"'{value.Replace("'", "'\"'\"'")}'";

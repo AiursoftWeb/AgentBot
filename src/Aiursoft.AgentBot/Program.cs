@@ -52,10 +52,10 @@ static IHostBuilder CreateHostBuilder(string[] args)
             {
                 options.ReplyLanguage = replyLanguage;
                 options.ReasoningEffort = reasoningEffort;
-                if (reasoningEffort != null && options.Engine != AiEngine.Codex)
+                if (reasoningEffort != null && options.Engine is not (AiEngine.Codex or AiEngine.Copilot))
                 {
                     throw new InvalidOperationException(
-                        "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex.");
+                        "AgentBot__ReasoningEffort is supported only when AgentBot__Engine is Codex or Copilot.");
                 }
             });
             services.AddGitRunner();

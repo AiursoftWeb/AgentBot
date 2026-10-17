@@ -64,7 +64,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 
 # Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
 RUN npm config set registry https://npm.aiursoft.com && \
-    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex --loglevel verbose && \
+    npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex @github/copilot --loglevel verbose && \
     npm cache clean --force && \
     rm -rf /root/.npm
 

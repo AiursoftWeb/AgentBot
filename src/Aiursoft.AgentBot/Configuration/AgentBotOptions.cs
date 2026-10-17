@@ -3,7 +3,8 @@ namespace Aiursoft.AgentBot.Configuration;
 public enum AiEngine
 {
     Claude,
-    Codex
+    Codex,
+    Copilot
 }
 
 public enum ReplyLanguage
@@ -35,7 +36,7 @@ public class AgentBotOptions
     public int ForkWaitDelayMs { get; set; } = 5000;
 
     /// <summary>
-    /// The AI engine backend to use: "Claude" or "Codex".
+    /// The AI engine backend to use: "Claude", "Codex", or "Copilot".
     /// </summary>
     public AiEngine Engine { get; set; } = AiEngine.Codex;
 
@@ -75,29 +76,29 @@ public class AgentBotOptions
         if (string.Equals(configuredEngine, "Gemini", StringComparison.OrdinalIgnoreCase))
         {
             throw new NotSupportedException(
-                "The Gemini AI engine is no longer supported. Configure AgentBot:Engine as Claude or Codex.");
+                "The Gemini AI engine is no longer supported. Configure AgentBot:Engine as Claude, Codex, or Copilot.");
         }
     }
 
     /// <summary>
-    /// The AI model to use (passed to --model parameter).
+    /// The AI model to use (--model for Claude/Codex, COPILOT_MODEL for Copilot).
     /// </summary>
     public string? Model { get; set; }
 
     /// <summary>
-    /// Codex reasoning effort. When set, it is passed as model_reasoning_effort for every Codex invocation.
+    /// Reasoning effort: model_reasoning_effort for Codex, or --effort for Copilot.
     /// </summary>
     public CodexReasoningEffort? ReasoningEffort { get; set; }
 
     /// <summary>
-    /// API key for the AI provider. Set as the provider-specific environment variable (for example, ANTHROPIC_API_KEY).
+    /// API key for the AI provider. Set as the provider-specific environment variable (ANTHROPIC_API_KEY or COPILOT_PROVIDER_API_KEY).
     /// Codex uses the persisted ChatGPT login under CODEX_HOME instead.
     /// </summary>
     public string? ApiKey { get; set; }
 
     /// <summary>
     /// Custom API endpoint for the AI provider (e.g., "https://api.deepseek.com/anthropic" for Claude via DeepSeek).
-    /// Only used when Engine is Claude. Sets ANTHROPIC_BASE_URL.
+    /// Sets ANTHROPIC_BASE_URL for Claude or COPILOT_PROVIDER_BASE_URL for Copilot.
     /// </summary>
     public string? ApiEndpoint { get; set; }
 
@@ -130,7 +131,7 @@ public class AgentBotOptions
 
     /// <summary>
     /// Require GitLab issues to converge on an approved plan before implementation.
-    /// Planning behavior is enforced through the Codex prompt; process isolation is provided by the outer container.
+    /// Planning behavior is enforced through the AI prompt; process isolation is provided by the outer container.
     /// </summary>
     public bool PlanningModeEnabled { get; set; } = true;
 }

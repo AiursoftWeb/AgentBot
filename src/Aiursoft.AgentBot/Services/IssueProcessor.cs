@@ -208,7 +208,7 @@ public class IssueProcessor(
 
     private bool ShouldUsePlanningMode(Issue issue, Server server)
     {
-        if (!_options.PlanningModeEnabled || _options.Engine != AiEngine.Codex || server.Provider != "GitLab")
+        if (!_options.PlanningModeEnabled || _options.Engine is not (AiEngine.Codex or AiEngine.Copilot) || server.Provider != "GitLab")
         {
             return false;
         }
