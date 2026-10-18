@@ -4,7 +4,7 @@
 [![Pipeline stat](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/pipeline.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![Test Coverage](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/coverage.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![NuGet version (aiursoft.agentbot)](https://img.shields.io/nuget/v/Aiursoft.agentbot.svg)](https://www.nuget.org/packages/Aiursoft.agentbot/)
-[![Man hours](https://manhours.aiursoft.com/r/gitlab.aiursoft.com/aiursoft/agentbot.svg)](https://manhours.aiursoft.com/r/gitlab.aiursoft.com/aiursoft/agentbot.html)
+[![Man hours](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.svg)](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.html)
 
 ## How it works
 
