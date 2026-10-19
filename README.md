@@ -1,6 +1,6 @@
 # Agent Bot
 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/blob/master/LICENSE)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/AiursoftWeb/agentbot/blob/master/LICENSE)
 [![Pipeline stat](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/pipeline.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![Test Coverage](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/coverage.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![NuGet version (aiursoft.agentbot)](https://img.shields.io/nuget/v/Aiursoft.agentbot.svg)](https://www.nuget.org/packages/Aiursoft.agentbot/)
@@ -70,8 +70,8 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
   "Servers": [
     {
       "Provider": "GitLab",
-      "EndPoint": "https://gitlab.aiursoft.com",
-      "PushEndPoint": "https://{0}@gitlab.aiursoft.com",
+      "EndPoint": "https://gitlab.example.com",
+      "PushEndPoint": "https://{0}@gitlab.example.com",
       "DisplayName": "Bot",
       "UserName": "agent-bot",
       "UserEmail": "bot@aiursoft.com",
@@ -126,8 +126,8 @@ AgentBot__ApiKey=sk-xxx
 AgentBot__Reviewer=senior-dev
 AgentBot__PlanningModeEnabled=true
 Servers__0__Provider=GitLab
-Servers__0__EndPoint=https://gitlab.aiursoft.com
-Servers__0__PushEndPoint=https://{0}@gitlab.aiursoft.com
+Servers__0__EndPoint=https://gitlab.example.com
+Servers__0__PushEndPoint=https://{0}@gitlab.example.com
 Servers__0__DisplayName=Agent Bot
 Servers__0__UserName=agent-bot
 Servers__0__UserEmail=bot@aiursoft.com
@@ -192,8 +192,8 @@ docker run -d \
   -e AgentBot__ReasoningEffort=high \
   -e AgentBot__WorkspaceFolder=/workspace \
   -e Servers__0__Provider=GitLab \
-  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
-  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__EndPoint=https://gitlab.example.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.example.com" \
   -e Servers__0__DisplayName="Bot" \
   -e Servers__0__UserName=agent-bot \
   -e Servers__0__UserEmail=bot@aiursoft.com \
@@ -229,8 +229,8 @@ docker run -d \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \
   -e AgentBot__Reviewer=senior-dev \
   -e Servers__0__Provider=GitLab \
-  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
-  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__EndPoint=https://gitlab.example.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.example.com" \
   -e Servers__0__DisplayName="Bot" \
   -e Servers__0__UserName=agent-bot \
   -e Servers__0__UserEmail=bot@aiursoft.com \
@@ -255,8 +255,8 @@ services:
       AgentBot__ApiEndpoint: https://api.deepseek.com/anthropic
       AgentBot__Reviewer: senior-dev
       Servers__0__Provider: GitLab
-      Servers__0__EndPoint: https://gitlab.aiursoft.com
-      Servers__0__PushEndPoint: "https://{0}@gitlab.aiursoft.com"
+      Servers__0__EndPoint: https://gitlab.example.com
+      Servers__0__PushEndPoint: "https://{0}@gitlab.example.com"
       Servers__0__DisplayName: Bot
       Servers__0__UserName: agent-bot
       Servers__0__UserEmail: bot@aiursoft.com
@@ -306,9 +306,9 @@ spec:
                 - name: Servers__0__Provider
                   value: GitLab
                 - name: Servers__0__EndPoint
-                  value: https://gitlab.aiursoft.com
+                  value: https://gitlab.example.com
                 - name: Servers__0__PushEndPoint
-                  value: "https://{0}@gitlab.aiursoft.com"
+                  value: "https://{0}@gitlab.example.com"
                 - name: Servers__0__DisplayName
                   value: Bot
                 - name: Servers__0__UserName
@@ -357,8 +357,8 @@ docker service create \
   -e AgentBot__ApiEndpoint=https://api.deepseek.com/anthropic \
   -e AgentBot__Reviewer=senior-dev \
   -e Servers__0__Provider=GitLab \
-  -e Servers__0__EndPoint=https://gitlab.aiursoft.com \
-  -e Servers__0__PushEndPoint="https://{0}@gitlab.aiursoft.com" \
+  -e Servers__0__EndPoint=https://gitlab.example.com \
+  -e Servers__0__PushEndPoint="https://{0}@gitlab.example.com" \
   -e Servers__0__DisplayName="Bot" \
   -e Servers__0__UserName=agent-bot \
   -e Servers__0__UserEmail=bot@aiursoft.com \
