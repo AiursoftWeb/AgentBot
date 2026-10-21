@@ -150,6 +150,21 @@ public partial class MergeRequestDiscussionService(
             decision.ThroughNoteId);
     }
 
+    internal async Task PublishAutomationStatusAsync(Server server, int projectId, int iid,
+        string kind, int round, bool exhausted = false)
+    {
+        // Machine status stays in English; AI-authored reviews still follow ReplyLanguage.
+        var body = exhausted
+            ? $"Automatic {kind} limit reached (maximum two rounds). Automation is paused for this MR. A human should resolve remaining blockers or merge once CI and review requirements are satisfied. This limit does not approve unresolved defects."
+            : $"Starting automatic {kind} round {round}/2. Scope remains the original MR objective.";
+        body += "\n\n" + (exhausted ? MergeRequestAutomationBudget.LimitMarker(kind) : MergeRequestAutomationBudget.Marker(kind, round));
+        using var client = httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.Token);
+        var response = await client.PostAsJsonAsync(
+            $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{iid}/notes", new { body });
+        response.EnsureSuccessStatusCode();
+    }
+
     internal static string BuildPrompt(
         MergeRequestSearchResult mergeRequest,
         string targetBranch,

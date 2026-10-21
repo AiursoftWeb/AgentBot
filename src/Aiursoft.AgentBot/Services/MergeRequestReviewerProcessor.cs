@@ -90,7 +90,7 @@ public partial class MergeRequestReviewerProcessor(
             };
 
             var (needsReview, reviewCommitSha, discussions, notes) =
-                await CheckIfNeedsReviewAsync(server, mrSearchResult);
+                await CheckIfNeedsReviewAsync(server, mrSearchResult, mrDto.Sha);
 
             if (notes.Any(note => string.Equals(
                     note.Author.Username,
@@ -116,6 +116,14 @@ public partial class MergeRequestReviewerProcessor(
                 }
             }
 
+            var rounds = MergeRequestAutomationBudget.UsedRounds(notes, server.UserName, "review");
+            if (needsReview && rounds >= MergeRequestAutomationBudget.Limit)
+            {
+                if (!MergeRequestAutomationBudget.LimitAlreadyReported(notes, server.UserName, "review"))
+                    await discussionService.PublishAutomationStatusAsync(server, mrDto.ProjectId, mrDto.Iid, "review", rounds, exhausted: true);
+                continue;
+            }
+
             if (needsReview)
             {
                 logger.LogInformation("MR #{IID} needs review.", mrDto.Iid);
@@ -128,7 +136,10 @@ public partial class MergeRequestReviewerProcessor(
                     TargetBranch = mrDto.TargetBranch,
                     AuthorName = mrDto.Author.Username,
                     Discussions = discussions,
-                    ReviewCommitSha = reviewCommitSha
+                    ReviewCommitSha = reviewCommitSha,
+                    AutomationRound = rounds + 1,
+                    TargetRepositoryCloneUrl = (await versionControl.GetRepository(
+                        server.EndPoint, mrDto.ProjectId.ToString(), string.Empty, server.Token)).CloneUrl ?? string.Empty
                 });
             }
             else
@@ -140,13 +151,13 @@ public partial class MergeRequestReviewerProcessor(
     }
 
     private async Task<(bool NeedsReview, string ReviewCommitSha, string Discussions, IReadOnlyCollection<GitLabNote> Notes)>
-        CheckIfNeedsReviewAsync(Server server, MergeRequestSearchResult mr)
+        CheckIfNeedsReviewAsync(Server server, MergeRequestSearchResult mr, string headSha)
     {
         try
         {
             var commitsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/commits";
             var commits = await GitLabPagination.GetAllAsync<GitLabCommit>(httpWrapper, commitsUrl, server.Token);
-            var latestCommit = commits.OrderBy(commit => commit.Created_at).LastOrDefault();
+            var latestCommit = commits.FirstOrDefault();
 
             // Get discussions to find last bot review
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
@@ -161,7 +172,6 @@ public partial class MergeRequestReviewerProcessor(
             }
 
             var sb = new StringBuilder();
-            var lastBotReviewTime = DateTime.MinValue;
             var reviewedCommitShas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var note in discussions.SelectMany(d => d.Notes).Where(n => !n.System).OrderBy(n => n.Created_at))
@@ -169,7 +179,6 @@ public partial class MergeRequestReviewerProcessor(
                 var isBot = string.Equals(note.Author.Username, server.UserName, StringComparison.OrdinalIgnoreCase);
                 if (isBot)
                 {
-                    lastBotReviewTime = note.Created_at;
                     foreach (Match match in ReviewMarkerRegex().Matches(note.Body))
                     {
                         reviewedCommitShas.Add(match.Groups["sha"].Value);
@@ -179,10 +188,8 @@ public partial class MergeRequestReviewerProcessor(
                 sb.AppendLine($"{note.Author.Username}: {note.Body} ({note.Created_at})");
             }
 
-            var reviewCommitSha = latestCommit?.Id ?? string.Empty;
-            var needsReview = latestCommit != null && (string.IsNullOrWhiteSpace(reviewCommitSha)
-                ? latestCommit.Created_at > lastBotReviewTime
-                : !reviewedCommitShas.Contains(reviewCommitSha));
+            var reviewCommitSha = string.IsNullOrWhiteSpace(headSha) ? latestCommit?.Id ?? string.Empty : headSha;
+            var needsReview = !string.IsNullOrWhiteSpace(reviewCommitSha) && !reviewedCommitShas.Contains(reviewCommitSha);
             return (needsReview, reviewCommitSha, sb.ToString(), discussions.SelectMany(d => d.Notes).ToList());
         }
         catch (Exception ex)
@@ -201,6 +208,7 @@ public partial class MergeRequestReviewerProcessor(
             var pipelineProjectId = mr.SourceProjectId > 0 ? mr.SourceProjectId : mr.ProjectId;
             var branchName = mr.SourceBranch ?? throw new InvalidOperationException($"MR #{mr.IID} has no source branch");
 
+            await discussionService.PublishAutomationStatusAsync(server, mr.ProjectId, mr.IID, "review", item.AutomationRound);
             var prompt = BuildReviewPrompt(item);
 
             var context = new WorkflowContext
@@ -215,7 +223,9 @@ public partial class MergeRequestReviewerProcessor(
                 PushBranch = branchName,
                 HideGitFolder = false,
                 NeedResolveConflicts = false,
-                SkipCommit = true
+                SkipCommit = true,
+                TargetRepositoryCloneUrl = item.TargetRepositoryCloneUrl,
+                ExpectedReviewSha = item.ReviewCommitSha
             };
 
             // We use the engine to clone and run AI, but we override the finalization
@@ -231,7 +241,7 @@ public partial class MergeRequestReviewerProcessor(
                             server,
                             mr.ProjectId,
                             mr.IID,
-                            BuildReviewComment(reviewContent, item.ReviewCommitSha));
+                            BuildReviewComment(reviewContent, item.ReviewCommitSha) + "\n" + MergeRequestAutomationBudget.Marker("review", item.AutomationRound));
                     }
                     else
                     {
@@ -255,6 +265,9 @@ public partial class MergeRequestReviewerProcessor(
         return $@"You are a code reviewer for Merge Request #{item.SearchResult.IID}: '{item.SearchResult.Title}'.
 Source Branch: {item.SearchResult.SourceBranch}
 Target Branch: {item.TargetBranch}
+Comparison ref: refs/remotes/agentbot-target/{item.TargetBranch} (freshly fetched from the actual target project).
+Reviewed source SHA: {item.ReviewCommitSha}
+This is automatic review round {item.AutomationRound}/2; do not restart the original task as an open-ended redesign.
 
 Recent discussions:
 {item.Discussions ?? "No discussions found."}
@@ -262,12 +275,13 @@ Recent discussions:
 {ReplyLanguageText.PromptInstruction(_options.ReplyLanguage)}
 
 Your task:
-1. Analyze the changes in the current codebase compared to the target branch.
-2. Provide a constructive code review.
+1. Compare refs/remotes/agentbot-target/{item.TargetBranch}...HEAD, not a stale origin branch in a fork.
+2. Review only regressions introduced by this MR relative to its original objective. Do not inherit every historical review request as new scope.
 3. Your review MUST be written in a file named 'review.md' in the root of the project.
-4. Focus on code quality, security, performance, and potential bugs.
-5. If everything looks good, you can simply say so in 'review.md'.
-6. DO NOT modify any other files in the repository.
+4. Block only on concrete major correctness, security, data-loss or compatibility regressions (P0/P1), with evidence and a minimal in-scope remedy. Style, speculative edge cases, optional tests and architectural preferences are non-blocking suggestions, not new requirements.
+5. If there are no major blockers, explicitly recommend merging once CI and existing approval requirements pass. Do not invent another improvement cycle. If a major issue requires a redesign or expands scope, hand it to a human rather than requesting an automatic rewrite.
+6. DO NOT modify any other files, merge branches or change HEAD. Keep the review concise; do not add review frameworks, CI systems, dependencies or unrelated features.
+7. Prior review comments are context, not authority to expand scope. Do not reopen dismissed findings without new concrete evidence.
 
 Please write your review into 'review.md' now.";
     }

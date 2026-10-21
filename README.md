@@ -21,6 +21,10 @@ Before looking for new work, the bot ensures its existing contributions are heal
 - **Addressing Reviews**: If a human reviewer provides feedback, the bot reads the feedback and asks AI to implement the requested changes.
 - **Fixing Pipelines**: If the CI/CD pipeline fails, the bot automatically downloads the failure logs and asks AI to fix the root cause.
 
+GitLab MR automation is bounded to **two reviews and two automatic repair attempts per MR**. Attempts are recorded before AI starts and survive restarts, new commits and force-pushes; failed or no-op attempts count too. At the limit, AgentBot posts one handoff notice and stops automatically retrying. Explicit new human implementation requests remain separately authorized work.
+
+Reviews focus on concrete major regressions within the original objective. Minor suggestions do not block merging; when no major blockers remain, AgentBot recommends merging once CI and existing approvals pass. Reaching the limit does not approve unresolved defects or bypass merge checks. AgentBot does not perform the final merge. The budget uses GitLab comments under the existing single-writer deployment; it is not a distributed lock for concurrent bot replicas.
+
 #### Phase 2: Issue Resolution
 Once all existing MRs are healthy, the bot looks for new issues assigned to it:
 - It clones the repository and creates a dedicated branch.
