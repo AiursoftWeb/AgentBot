@@ -14,5 +14,6 @@ public class MRToProcess
     public string? AuthorName { get; init; }
     public string? Discussions { get; init; }
     public MergeRequestDiscussionDecision? DiscussionDecision { get; init; }
+    public int AutomationRound { get; init; }
     public string ReviewCommitSha { get; init; } = string.Empty;
 }

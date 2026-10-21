@@ -19,6 +19,7 @@ public class WorkflowContext
     public bool HideGitFolder { get; set; }
     public string PushBranch { get; set; } = string.Empty;
     public bool NeedResolveConflicts { get; set; }
+    public string ExpectedReviewSha { get; init; } = string.Empty;
     public bool SkipCommit { get; set; }
     public string AiOutput { get; set; } = string.Empty;
 

@@ -38,10 +38,18 @@ public class BotWorkflowEngine(
                 await TriggerMergeAsync(context);
             }
 
+            if (!string.IsNullOrWhiteSpace(context.ExpectedReviewSha))
+            {
+                await FetchTargetBranchAsync(context);
+                await ValidateReviewHeadAsync(context);
+                var previousReview = Path.Combine(context.WorkspacePath, "review.md");
+                if (File.Exists(previousReview)) File.Delete(previousReview);
+            }
             await RunAi(context);
 
             if (context.SkipCommit)
             {
+                if (!string.IsNullOrWhiteSpace(context.ExpectedReviewSha)) await ValidateReviewHeadAsync(context);
                 if (finalizeAsync != null)
                 {
                     await finalizeAsync(context);
@@ -114,11 +122,15 @@ public class BotWorkflowEngine(
             context.Server.UserEmail);
     }
 
-    private async Task TriggerMergeAsync(WorkflowContext context)
+    private async Task ValidateReviewHeadAsync(WorkflowContext context)
     {
-        logger.LogInformation("Proactively merging {TargetBranch} into {SourceBranch} to trigger conflicts...",
-            context.TargetBranch, context.SourceBranch);
+        var (code, sha, _) = await commandService.RunCommandAsync("git", "rev-parse HEAD", context.WorkspacePath, TimeSpan.FromSeconds(10));
+        if (code != 0 || !string.Equals(sha.Trim(), context.ExpectedReviewSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Review source HEAD changed; refusing to publish a review for another commit.");
+    }
 
+    private async Task FetchTargetBranchAsync(WorkflowContext context)
+    {
         if (string.IsNullOrWhiteSpace(context.TargetRepositoryCloneUrl))
         {
             throw new InvalidOperationException("Target repository clone URL is required to resolve merge conflicts.");
@@ -147,6 +159,16 @@ public class BotWorkflowEngine(
             throw new InvalidOperationException(
                 $"Failed to fetch the actual target branch. Output: {fetchOutput}. Error: {fetchError}");
         }
+
+    }
+
+    private async Task TriggerMergeAsync(WorkflowContext context)
+    {
+        logger.LogInformation("Proactively merging {TargetBranch} into {SourceBranch} to trigger conflicts...",
+            context.TargetBranch, context.SourceBranch);
+
+        await FetchTargetBranchAsync(context);
+        var targetRef = $"refs/remotes/agentbot-target/{context.TargetBranch}";
 
         // 2. 确保是 Merge 行为，不是 Rebase
         await commandService.RunCommandAsync("git", "config pull.rebase false", context.WorkspacePath,

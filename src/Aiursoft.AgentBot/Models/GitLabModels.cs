@@ -55,6 +55,9 @@ public class GitLabUser
 
 public class GitLabMergeRequestDto
 {
+    [JsonPropertyName("sha")]
+    public string Sha { get; set; } = string.Empty;
+
     [JsonPropertyName("iid")]
     public int Iid { get; set; }
 

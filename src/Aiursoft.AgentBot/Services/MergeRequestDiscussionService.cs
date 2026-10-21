@@ -150,6 +150,24 @@ public partial class MergeRequestDiscussionService(
             decision.ThroughNoteId);
     }
 
+    internal async Task PublishAutomationStatusAsync(Server server, int projectId, int iid,
+        string kind, int round, bool exhausted = false)
+    {
+        var body = exhausted
+            ? ReplyLanguageText.Select(_options.ReplyLanguage,
+                $"Automatic {kind} limit reached (maximum two rounds). Automation is paused for this MR. A human should resolve remaining blockers or merge once CI and review requirements are satisfied. This limit does not approve unresolved defects.",
+                $"此 MR 的自动{(kind == "review" ? "审查" : "修复")}已达两轮上限，停止继续循环。请由人处理剩余阻塞；CI 和审核要求满足即可合并。达到上限不代表未解决的问题已获放行。")
+            : ReplyLanguageText.Select(_options.ReplyLanguage,
+                $"Starting automatic {kind} round {round}/2. Scope remains the original MR objective.",
+                $"开始自动{(kind == "review" ? "审查" : "修复")}第 {round}/2 轮，仅处理原 MR 目标范围。");
+        body += "\n\n" + (exhausted ? MergeRequestAutomationBudget.LimitMarker(kind) : MergeRequestAutomationBudget.Marker(kind, round));
+        using var client = httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.Token);
+        var response = await client.PostAsJsonAsync(
+            $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{projectId}/merge_requests/{iid}/notes", new { body });
+        response.EnsureSuccessStatusCode();
+    }
+
     internal static string BuildPrompt(
         MergeRequestSearchResult mergeRequest,
         string targetBranch,

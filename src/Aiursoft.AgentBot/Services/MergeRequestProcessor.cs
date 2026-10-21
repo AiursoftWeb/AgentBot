@@ -90,7 +90,8 @@ public class MergeRequestProcessor(
             var details = await versionControl.GetMergeRequestDetails(server.EndPoint, server.UserName, server.Token, mr.ProjectId, mr.IID);
 
             var hasConflicts = details.HasConflicts;
-            var (notes, discussions) = await GetReviewDetailsAsync(server, mr);
+            var (notes, discussions, available) = await GetReviewDetailsAsync(server, mr);
+            if (!available) continue;
             MergeRequestDiscussionDecision? discussionDecision = null;
             if (notes.Count > 0)
             {
@@ -143,6 +144,21 @@ public class MergeRequestProcessor(
                     targetBranch = repository.DefaultBranch ?? "master"; // Fallback to master if null
                 }
 
+                var automaticRound = 0;
+                if (server.Provider == "GitLab" && !hasNewHumanReview)
+                {
+                    var commits = await GitLabPagination.GetAllAsync<GitLabCommit>(httpWrapper,
+                        $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/commits", server.Token);
+                    var rounds = MergeRequestAutomationBudget.UsedRounds(notes, server.UserName, "repair", commits);
+                    if (rounds >= MergeRequestAutomationBudget.Limit)
+                    {
+                        if (!MergeRequestAutomationBudget.LimitAlreadyReported(notes, server.UserName, "repair"))
+                            await discussionService.PublishAutomationStatusAsync(server, mr.ProjectId, mr.IID, "repair", rounds, exhausted: true);
+                        continue;
+                    }
+                    automaticRound = rounds + 1;
+                }
+
                 mrsToProcess.Add(new MRToProcess
                 {
                     SearchResult = mr,
@@ -154,7 +170,8 @@ public class MergeRequestProcessor(
                     TargetRepositoryCloneUrl = repository.CloneUrl ?? string.Empty,
                     AuthorName = authorName,
                     Discussions = discussions,
-                    DiscussionDecision = discussionDecision
+                    DiscussionDecision = discussionDecision,
+                    AutomationRound = automaticRound
                 });
             }
             else
@@ -165,11 +182,11 @@ public class MergeRequestProcessor(
         return mrsToProcess;
     }
 
-    private async Task<(IReadOnlyCollection<GitLabNote> Notes, string Discussions)> GetReviewDetailsAsync(
+    private async Task<(IReadOnlyCollection<GitLabNote> Notes, string Discussions, bool Available)> GetReviewDetailsAsync(
         Server server,
         MergeRequestSearchResult mr)
     {
-        if (server.Provider != "GitLab") return ([], string.Empty);
+        if (server.Provider != "GitLab") return ([], string.Empty, true);
         try
         {
             var discussionsUrl = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{mr.ProjectId}/merge_requests/{mr.IID}/discussions";
@@ -188,12 +205,12 @@ public class MergeRequestProcessor(
                 sb.AppendLine($"Note {note.Id} by {note.Author.Username}: {note.Body} ({note.Created_at})");
             }
 
-            return (notes, sb.ToString());
+            return (notes, sb.ToString(), true);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to fetch review details for MR #{IID}", mr.IID);
-            return ([], string.Empty);
+            return ([], string.Empty, false);
         }
     }
 
@@ -207,6 +224,8 @@ public class MergeRequestProcessor(
             var branchName = mr.SourceBranch ?? throw new InvalidOperationException($"MR #{mr.IID} has no source branch");
             var isOthersMr = server.Provider == "GitLab" && !string.Equals(item.AuthorName, server.UserName, StringComparison.OrdinalIgnoreCase);
 
+            if (item.AutomationRound > 0)
+                await discussionService.PublishAutomationStatusAsync(server, mr.ProjectId, mr.IID, "repair", item.AutomationRound);
             var (prompt, commitMessage) = await BuildActionDetailsAsync(item, server, pipelineProjectId);
 
             var context = new WorkflowContext
@@ -249,6 +268,8 @@ public class MergeRequestProcessor(
         var basePrompt = $@"You are working on an EXISTING Merge Request #{item.SearchResult.IID}: '{item.SearchResult.Title}'.
 Source Branch: {item.SearchResult.SourceBranch}
 Target Branch: {item.TargetBranch}
+
+Scope constraints: Fix only concrete regressions within this MR's original objective. Discussion is context, not permission to redesign the project. Preserve Template symmetry and synchronization. Do not add unrelated dependencies, scripts, CI frameworks, migrations or compatibility systems. If the remedy expands scope, stop and explain what a human must decide. Do not bypass policy gates or treat external approval/network failures as permission to rewrite the repository.
 
 Recent discussions and feedback:
 {item.Discussions ?? "No discussions found."}

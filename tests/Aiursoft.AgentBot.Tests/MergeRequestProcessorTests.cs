@@ -36,6 +36,7 @@ public class MergeRequestProcessorTests
     private List<GitLabDiscussion> _gitLabDiscussions = new();
     private readonly List<string> _postedNotes = [];
     private readonly List<string> _postedNoteUrls = [];
+    private bool _failDiscussions;
     private GitLabUser _botUser = new();
     private List<GitLabMergeRequestDto> _botMrList = new();
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -76,6 +77,7 @@ public class MergeRequestProcessorTests
             }
             if (req.Method == HttpMethod.Get && url.Contains("merge_requests") && url.Contains("discussions"))
             {
+                if (_failDiscussions) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(JsonSerializer.Serialize(_gitLabDiscussions))
@@ -101,11 +103,12 @@ public class MergeRequestProcessorTests
                 var body = JsonDocument.Parse(json).RootElement.GetProperty("body").GetString()!;
                 _postedNotes.Add(body);
                 _postedNoteUrls.Add(url);
+                if (_gitLabDiscussions.Count == 0) _gitLabDiscussions.Add(new GitLabDiscussion());
                 if (_gitLabDiscussions.Count > 0)
                 {
                     _gitLabDiscussions[0].Notes = _gitLabDiscussions[0].Notes.Append(new GitLabNote
                     {
-                        Id = _gitLabDiscussions.SelectMany(discussion => discussion.Notes).Max(note => note.Id) + 1,
+                        Id = _gitLabDiscussions.SelectMany(discussion => discussion.Notes).Select(note => note.Id).DefaultIfEmpty(0).Max() + 1,
                         Body = body,
                         Author = new GitLabUser { Username = "bot-user" },
                         Created_at = DateTime.UtcNow
@@ -236,7 +239,9 @@ public class MergeRequestProcessorTests
     }
 
     [TestMethod]
-    public async Task ProcessMergeRequestsAsync_ExplicitImplementationRequest_UsesAcceptedBrief()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProcessMergeRequestsAsync_ExplicitImplementationRequest_UsesAcceptedBrief(bool automaticBudgetExhausted)
     {
         var server = new Server
         {
@@ -283,6 +288,12 @@ public class MergeRequestProcessorTests
                 ]
             }
         ];
+        if (automaticBudgetExhausted)
+            _gitLabDiscussions.Add(new GitLabDiscussion { Notes = [new GitLabNote
+            {
+                Id = 1, Author = new GitLabUser { Username = "bot-user" },
+                Body = MergeRequestAutomationBudget.Marker("repair", 2)
+            }] });
         _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
             {
                 Name = "repo",
@@ -794,4 +805,35 @@ public class MergeRequestProcessorTests
         Assert.AreEqual(0, _workspaceManagerMock.CommitToBranchCalls.Count);
         Assert.AreEqual(0, _workspaceManagerMock.PushCalls.Count);
     }
+    [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public async Task PersistentFailureStopsAfterTwoAutomaticAttempts(bool discussionsUnavailable, bool aiSucceeds)
+    {
+        _failDiscussions = discussionsUnavailable;
+        var server = new Server { Provider = "GitLab", UserName = "bot-user", Token = "token", EndPoint = "https://gitlab.com" };
+        _gitLabMrList = [new GitLabMergeRequestDto
+        {
+            Iid = 1, ProjectId = 101, SourceProjectId = 101, SourceBranch = "feature", TargetBranch = "main",
+            Author = new GitLabUser { Username = "bot-user" }
+        }];
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository { Name = "repo", CloneUrl = "https://gitlab.com/repo.git" });
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(JsonSerializer.Deserialize<DetailedMergeRequest>("{\"MrPipeline\":{\"Id\":123,\"Status\":\"failed\"}}", _jsonOptions)!);
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, prompt, _) =>
+        {
+            StringAssert.Contains(prompt, "Preserve Template symmetry");
+            return Task.FromResult((aiSucceeds, "No in-scope code change can fix this external failure.", ""));
+        };
+        for (var n = 0; n < 5; n++)
+        {
+            var engine = new BotWorkflowEngine(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock,
+                _commandServiceMock, _options, NullLogger<BotWorkflowEngine>.Instance);
+            await new MergeRequestProcessor(_versionControlMock, engine, _discussionService, _httpWrapper, _options, _loggerMock).ProcessMergeRequestsAsync(server);
+        }
+        Assert.AreEqual(discussionsUnavailable ? 0 : 2, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
+        Assert.AreEqual(discussionsUnavailable ? 0 : 1, _postedNotes.Count(note => note.Contains("agentbot:mr-automation:v1:repair-limit")));
+        Assert.IsEmpty(_workspaceManagerMock.PushCalls);
+    }
+
 }

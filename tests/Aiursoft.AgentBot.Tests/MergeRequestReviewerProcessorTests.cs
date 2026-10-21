@@ -39,7 +39,11 @@ public class MergeRequestReviewerProcessorTests
         };
         _options = Options.Create(options);
 
-        _commandServiceMock = new StubCommandService();
+        _commandServiceMock = new StubCommandService
+        {
+            RunCommandAsyncHandler = (_, arg, _, _, _, _) => Task.FromResult((0,
+                arg == "rev-parse HEAD" ? (_gitLabMrList.FirstOrDefault()?.Sha is { Length: > 0 } sha ? sha : _commitsList.FirstOrDefault()?.Id ?? "") : "", ""))
+        };
         _versionControlMock = new StubVersionControlService();
         _workspaceManagerMock = new StubWorkspaceManager();
         _workspaceManagerMock.ResetRepoHandler = (path, _, _, _, _) =>
@@ -80,7 +84,13 @@ public class MergeRequestReviewerProcessorTests
             if (req.Method == HttpMethod.Post && url.Contains("notes"))
             {
                 var json = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                _postedNotes.Add(JsonDocument.Parse(json).RootElement.GetProperty("body").GetString()!);
+                var body = JsonDocument.Parse(json).RootElement.GetProperty("body").GetString()!;
+                _postedNotes.Add(body);
+                _discussionsList.Add(new GitLabDiscussion { Notes = [new GitLabNote
+                {
+                    Id = 1000 + _postedNotes.Count, Body = body,
+                    Author = new GitLabUser { Username = "bot-user" }, Created_at = DateTime.UtcNow
+                }] });
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent("{}")
@@ -92,7 +102,7 @@ public class MergeRequestReviewerProcessorTests
         var client = new HttpClient(handler);
         _httpWrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, client);
         _httpClientFactoryMock = new StubHttpClientFactory();
-        _httpClientFactoryMock.Create = () => client;
+        _httpClientFactoryMock.Create = () => new HttpClient(handler, disposeHandler: false);
     }
 
     [TestMethod]
@@ -195,9 +205,9 @@ public class MergeRequestReviewerProcessorTests
         // Assert
         Assert.IsTrue(result.Success);
         Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count(call => (call.taskDescription.Contains("code reviewer") && call.taskDescription.Contains("Simplified Chinese"))));
-        Assert.HasCount(1, _postedNotes);
+        Assert.HasCount(2, _postedNotes);
         StringAssert.Contains(
-            _postedNotes[0],
+            _postedNotes.Last(),
             "<!-- agentbot:mr-review:commit-0123456789abcdef0123456789abcdef01234567 -->");
     }
 
@@ -367,4 +377,66 @@ public class MergeRequestReviewerProcessorTests
         Assert.AreEqual(1, _aiCliServiceMock.InvokePlanningCliAsyncCalls.Count(call => (call.taskDescription.Contains("Implementation authority for this invocation: not allowed"))));
         Assert.AreEqual(0, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
     }
+    [TestMethod]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public async Task ReviewBudgetSurvivesNewHeadsAndProcessorRestarts(bool writesReview, bool aiSucceeds)
+    {
+        var server = new Server { Provider = "GitLab", UserName = "bot-user", Token = "token", EndPoint = "https://gitlab.com" };
+        _gitLabMrList = [new GitLabMergeRequestDto
+        {
+            Iid = 1, ProjectId = 101, SourceProjectId = 101, SourceBranch = "feature", TargetBranch = "main",
+            Author = new GitLabUser { Username = "bot-user" }
+        }];
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
+        {
+            Name = "repo", CloneUrl = "https://gitlab.com/actual-target/repo.git"
+        });
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(new DetailedMergeRequest());
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (path, prompt, _) =>
+        {
+            StringAssert.Contains(prompt, "P0/P1");
+            StringAssert.Contains(prompt, "explicitly recommend merging");
+            StringAssert.Contains(prompt, "refs/remotes/agentbot-target/main");
+            if (writesReview) File.WriteAllText(Path.Combine(path, "review.md"), "No major blockers; recommend merging after CI.");
+            return Task.FromResult((aiSucceeds, "", ""));
+        };
+        for (var n = 0; n < 5; n++)
+        {
+            _gitLabMrList[0].Sha = n.ToString("x40");
+            _commitsList = [new GitLabCommit { Id = new string('f', 40), Created_at = DateTime.UtcNow.AddDays(1) }];
+            var engine = new BotWorkflowEngine(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock,
+                _commandServiceMock, _options, NullLogger<BotWorkflowEngine>.Instance);
+            var discussion = new MergeRequestDiscussionService(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock,
+                _httpClientFactoryMock, _options, NullLogger<MergeRequestDiscussionService>.Instance);
+            var processor = new MergeRequestReviewerProcessor(_versionControlMock, engine, discussion, _httpWrapper,
+                _httpClientFactoryMock, _options, _loggerMock);
+            await processor.ProcessReviewRequestsAsync(server);
+        }
+        Assert.HasCount(2, _aiCliServiceMock.InvokeAiCliAsyncCalls);
+        Assert.AreEqual(1, _postedNotes.Count(note => note.Contains("agentbot:mr-automation:v1:review-limit")));
+        Assert.IsTrue(_commandServiceMock.RunCommandAsyncCalls.Any(call => call.arg.StartsWith("fetch --no-tags https://gitlab.com/actual-target/repo.git")));
+        if (writesReview)
+        {
+            Assert.IsTrue(_postedNotes.Any(note => note.Contains("commit-" + 0.ToString("x40"))));
+            Assert.IsFalse(_postedNotes.Any(note => note.Contains("commit-" + new string('f', 40))));
+        }
+    }
+
+    [TestMethod]
+    public async Task ChangedCheckoutHeadDoesNotPublishReviewForWrongCommit()
+    {
+        var server = new Server { Provider = "GitLab", UserName = "bot-user", EndPoint = "https://gitlab.com", Token = "token" };
+        _gitLabMrList = [new GitLabMergeRequestDto { Iid = 1, ProjectId = 101, SourceBranch = "feature", TargetBranch = "main", Sha = new string('a', 40) }];
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository { Name = "repo", CloneUrl = "https://gitlab.com/repo.git" });
+        _versionControlMock.GetMergeRequestDetailsHandler = (_, _, _, _, _) => Task.FromResult(new DetailedMergeRequest());
+        _commandServiceMock.RunCommandAsyncHandler = (_, _, _, _, _, _) => Task.FromResult((0, new string('b', 40), ""));
+        var engine = new BotWorkflowEngine(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock, _commandServiceMock, _options, NullLogger<BotWorkflowEngine>.Instance);
+        var discussion = new MergeRequestDiscussionService(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock, _httpClientFactoryMock, _options, NullLogger<MergeRequestDiscussionService>.Instance);
+        await new MergeRequestReviewerProcessor(_versionControlMock, engine, discussion, _httpWrapper, _httpClientFactoryMock, _options, _loggerMock).ProcessReviewRequestsAsync(server);
+        Assert.IsEmpty(_aiCliServiceMock.InvokeAiCliAsyncCalls);
+        Assert.IsFalse(_postedNotes.Any(note => note.Contains("agentbot:mr-review:commit-")));
+    }
+
 }
