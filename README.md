@@ -1,8 +1,8 @@
 # Agent Bot
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/AiursoftWeb/agentbot/blob/master/LICENSE)
-[![Pipeline stat](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/pipeline.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
-[![Test Coverage](https://gitlab.aiursoft.com/aiursoft/agentbot/badges/master/coverage.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
+[![Pipeline stat](https://badge-proxy.aiursoft.com/aiursoft/agentbot/badges/master/pipeline.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
+[![Test Coverage](https://badge-proxy.aiursoft.com/aiursoft/agentbot/badges/master/coverage.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![S360 compliance](https://s360.aiursoft.com/badge.svg?project=aiursoft%2Fagentbot)](https://s360.aiursoft.com/SupplyChain?tab=projects&project=aiursoft%2Fagentbot&scope=baseline&ecosystem=all)
 [![NuGet version (aiursoft.agentbot)](https://img.shields.io/nuget/v/Aiursoft.agentbot.svg)](https://www.nuget.org/packages/Aiursoft.agentbot/)
 [![Man hours](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.svg)](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.html)
