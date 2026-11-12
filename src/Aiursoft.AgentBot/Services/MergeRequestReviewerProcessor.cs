@@ -1,3 +1,4 @@
+using System.Globalization;
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
@@ -185,7 +186,7 @@ public partial class MergeRequestReviewerProcessor(
                     }
                 }
 
-                sb.AppendLine($"{note.Author.Username}: {note.Body} ({note.Created_at})");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"{note.Author.Username}: {note.Body} ({note.Created_at:O})");
             }
 
             var reviewCommitSha = string.IsNullOrWhiteSpace(headSha) ? latestCommit?.Id ?? string.Empty : headSha;
