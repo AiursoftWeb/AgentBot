@@ -1,3 +1,4 @@
+using System.Globalization;
 using Aiursoft.AgentBot.Configuration;
 using Aiursoft.AgentBot.Models;
 using Aiursoft.NugetNinja.GitServerBase.Models;
@@ -202,7 +203,7 @@ public class MergeRequestProcessor(
             var notes = discussions.SelectMany(d => d.Notes).Where(n => !n.System).ToList();
             foreach (var note in notes.OrderBy(n => n.Created_at))
             {
-                sb.AppendLine($"Note {note.Id} by {note.Author.Username}: {note.Body} ({note.Created_at})");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"Note {note.Id} by {note.Author.Username}: {note.Body} ({note.Created_at:O})");
             }
 
             return (notes, sb.ToString(), true);
