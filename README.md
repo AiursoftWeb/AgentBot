@@ -18,7 +18,9 @@ Automate issue planning, implementation and maintenance of software changes usin
 
 Install the CLI with the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
 
-2. The CLI for the selected AI engine
+**Additional requirements**
+
+- The CLI for the selected AI engine
 
 ```bash
 dotnet tool install --global Aiursoft.AgentBot
