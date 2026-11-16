@@ -1,6 +1,8 @@
 FROM hub.aiursoft.com/aiursoft/internalimages/anduinos-internal:latest AS agent-base
 
 ARG TARGETARCH
+ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 
 # Set environment variables to ensure Python runs in unbuffered mode and pip does not cache packages or break system packages.
 ENV PYTHONUNBUFFERED=1 \
@@ -62,8 +64,8 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
 
-# Set npm registry to a reliable mirror and install necessary global npm packages for TypeScript development and AI CLI tools.
-RUN npm config set registry https://npm.aiursoft.com && \
+# Use the selected registry for TypeScript development and AI CLI tools.
+RUN npm config set registry "$NPM_REGISTRY" && \
     npm install -g typescript ts-node npm yarn @anthropic-ai/claude-code @openai/codex @github/copilot --loglevel verbose && \
     npm cache clean --force && \
     rm -rf /root/.npm
@@ -81,7 +83,7 @@ FROM agent-base AS app-build
 
 WORKDIR /src
 COPY . .
-RUN dotnet restore *.sln && \
+RUN dotnet restore *.sln --source "$NUGET_SOURCE" && \
     dotnet build -maxcpucount:1 --configuration Release --no-restore --no-self-contained *.sln && \
     dotnet pack -maxcpucount:1 --configuration Release --no-restore --no-build *.sln
 
@@ -94,11 +96,11 @@ ENV HOME=/home/bot \
 
 COPY --from=app-build /src/src/Aiursoft.AgentBot/bin/Release/*.nupkg /tmp/agentbot-packages/
 
-RUN dotnet tool install --tool-path /home/bot/.dotnet/tools Aiursoft.AgentBot --add-source /tmp/agentbot-packages/ && \
-    dotnet tool install --tool-path /home/bot/.dotnet/tools dotnet-ef --add-source https://nuget.aiursoft.com/v3/index.json && \
-    printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
-      '<configuration><packageSources><clear /><add key="Aiursoft" value="https://nuget.aiursoft.com/v3/index.json" /></packageSources></configuration>' \
+RUN printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' \
+      "<configuration><packageSources><clear /><add key=\"registry\" value=\"$NUGET_SOURCE\" /></packageSources></configuration>" \
       > /tmp/agent-tools.config && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools Aiursoft.AgentBot --configfile /tmp/agent-tools.config --add-source /tmp/agentbot-packages/ && \
+    dotnet tool install --tool-path /home/bot/.dotnet/tools dotnet-ef --configfile /tmp/agent-tools.config && \
     dotnet tool install --tool-path /home/bot/.dotnet/tools JetBrains.ReSharper.GlobalTools --configfile /tmp/agent-tools.config -v d && \
     dotnet tool install --tool-path /home/bot/.dotnet/tools dotnet-reportgenerator-globaltool --configfile /tmp/agent-tools.config -v d && \
     dotnet tool install --tool-path /home/bot/.dotnet/tools aiursoft.apkg.client --configfile /tmp/agent-tools.config -v d && \
