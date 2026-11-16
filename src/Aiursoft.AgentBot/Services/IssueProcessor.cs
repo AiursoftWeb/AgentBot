@@ -52,7 +52,8 @@ public class IssueProcessor(
 
             var defaultBranch = repository.DefaultBranch ?? "master"; // Fallback to master if null
 
-            var comments = await GetIssueCommentsAsync(server, issue);
+            var notes = await GetIssueNotesAsync(server, issue);
+            var comments = BuildIssueComments(notes);
             string? approvedPlan = null;
             if (ShouldUsePlanningMode(issue, server))
             {
@@ -67,6 +68,23 @@ public class IssueProcessor(
                 approvedPlan = planningOutcome.ApprovedPlan;
                 logger.LogInformation(
                     "Issue #{IssueId} has an approved plan. Starting a separate implementation workflow.", issue.Iid);
+            }
+
+            if (server.Provider == "GitLab")
+            {
+                var ownNotes = notes.Where(note => !note.System &&
+                    string.Equals(note.Author.Username, server.UserName, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (ownNotes.Any(note => note.Body.Contains(ImplementationMarker(2), StringComparison.Ordinal)))
+                {
+                    logger.LogWarning("Issue #{IssueId} has exhausted its two automatic implementation attempts", issue.Iid);
+                    return ProcessResult.Skipped("Automatic implementation limit reached; human intervention required");
+                }
+                var round = ownNotes.Any(note => note.Body.Contains(ImplementationMarker(1), StringComparison.Ordinal)) ? 2 : 1;
+                // Persist before AI execution. Failures, no-op runs and process restarts must consume the attempt.
+                await PostImplementationNoteAsync(server, issue,
+                    $"Starting automatic implementation attempt {round}/2. Failed or unchanged runs count toward this limit. " +
+                    "After two attempts, human intervention is required; a new scan does not reset the limit.\n\n" +
+                    ImplementationMarker(round));
             }
 
             logger.LogInformation("Issue #{IssueId} needs attention. Bot will create a fork and a new MR.", issue.Iid);
@@ -141,6 +159,17 @@ public class IssueProcessor(
                 }
             });
 
+            if (context.Result.Message == "Skipped: No changes made")
+            {
+                context.Result = ProcessResult.Failed("AI execution produced no repository changes; no merge request was created");
+            }
+            if (server.Provider == "GitLab" && !context.Result.Success)
+            {
+                await PostImplementationNoteAsync(server, issue,
+                    "The automatic implementation attempt did not produce a merge request. " +
+                    "The worker failed or made no repository changes. The attempt remains counted toward the two-attempt limit. " +
+                    "A successful CLI exit alone does not mean that this issue was fixed.");
+            }
             return context.Result;
         }
         catch (Exception ex)
@@ -150,30 +179,28 @@ public class IssueProcessor(
         }
     }
 
-    private async Task<string> GetIssueCommentsAsync(Server server, Issue issue)
+    private static string ImplementationMarker(int round) => $"<!-- agentbot:issue-implementation:v1:round-{round} -->";
+
+    private async Task PostImplementationNoteAsync(Server server, Issue issue, string body)
     {
-        if (server.Provider != "GitLab")
-        {
-            return string.Empty;
-        }
+        var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes";
+        await httpWrapper.SendHttp(url, HttpMethod.Post, server.Token, new { body });
+    }
 
-        try
-        {
-            var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes?sort=asc&order_by=created_at";
-            var notes = await GitLabPagination.GetAllAsync<GitLabNote>(httpWrapper, url, server.Token);
+    private async Task<List<GitLabNote>> GetIssueNotesAsync(Server server, Issue issue)
+    {
+        if (server.Provider != "GitLab") return [];
+        var url = $"{server.EndPoint.TrimEnd('/')}/api/v4/projects/{issue.ProjectId}/issues/{issue.Iid}/notes?sort=asc&order_by=created_at";
+        // Do not run AI when history is unavailable: an empty fallback would grant a fresh allowance.
+        return await GitLabPagination.GetAllAsync<GitLabNote>(httpWrapper, url, server.Token);
+    }
 
-            var comments = notes
-                .Where(n => !n.System)
-                .Select(n => $"Comment by @{n.Author.Username} at {n.Created_at:yyyy-MM-dd HH:mm:ss}:\n{n.Body}")
-                .ToList();
-
-            return comments.Any() ? "\n\n## Issue Comments\n" + string.Join("\n\n---\n\n", comments) : string.Empty;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to fetch comments for issue #{IssueId}", issue.Iid);
-            return string.Empty;
-        }
+    private static string BuildIssueComments(IEnumerable<GitLabNote> notes)
+    {
+        var comments = notes.Where(note => !note.System)
+            .Select(note => $"Comment by @{note.Author.Username} at {note.Created_at:yyyy-MM-dd HH:mm:ss}:\n{note.Body}")
+            .ToList();
+        return comments.Count > 0 ? "\n\n## Issue Comments\n" + string.Join("\n\n---\n\n", comments) : string.Empty;
     }
 
     private async Task<bool> IsIssueOpenAsync(Server server, Issue issue)
