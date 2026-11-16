@@ -1,5 +1,6 @@
-# Agent Bot
+# Aiursoft AgentBot
 
+<a name="agent-bot"></a>
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/AiursoftWeb/agentbot/blob/master/LICENSE)
 [![Pipeline stat](https://badge-proxy.aiursoft.com/aiursoft/agentbot/badges/master/pipeline.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
 [![Test Coverage](https://badge-proxy.aiursoft.com/aiursoft/agentbot/badges/master/coverage.svg)](https://gitlab.aiursoft.com/aiursoft/agentbot/-/pipelines)
@@ -7,157 +8,19 @@
 [![NuGet version (aiursoft.agentbot)](https://img.shields.io/nuget/v/Aiursoft.agentbot.svg)](https://www.nuget.org/packages/Aiursoft.agentbot/)
 [![Man hours](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.svg)](https://manhours.aiursoft.com/r/github.com/aiursoftweb/agentbot.html)
 
-## How it works
+## Overview
 
-Agent Bot is designed to autonomously manage the entire lifecycle of software development tasks on GitLab/GitHub. It follows a strictly prioritized workflow to ensure existing work is maintained before starting new tasks.
+### What is AgentBot?
 
-### Workflow Priorities
-
-The bot operates in two main phases:
-
-#### Phase 1: Merge Request Maintenance (Highest Priority)
-Before looking for new work, the bot ensures its existing contributions are healthy. It scans for Merge Requests assigned to it or created by it that need attention:
-- **Conflict Resolution**: If an MR has merge conflicts, the bot merges the target branch and invokes AI to resolve the conflicts.
-- **Addressing Reviews**: If a human reviewer provides feedback, the bot reads the feedback and asks AI to implement the requested changes.
-- **Fixing Pipelines**: If the CI/CD pipeline fails, the bot automatically downloads the failure logs and asks AI to fix the root cause.
-
-GitLab MR automation is bounded to **two reviews and two automatic repair attempts per MR**. Attempts are recorded before AI starts and survive restarts, new commits and force-pushes; failed or no-op attempts count too. At the limit, AgentBot posts one handoff notice and stops automatically retrying. Explicit new human implementation requests remain separately authorized work.
-
-Reviews focus on concrete major regressions within the original objective. Minor suggestions do not block merging; when no major blockers remain, AgentBot recommends merging once CI and existing approvals pass. Reaching the limit does not approve unresolved defects or bypass merge checks. AgentBot does not perform the final merge. The budget uses GitLab comments under the existing single-writer deployment; it is not a distributed lock for concurrent bot replicas.
-
-#### Phase 2: Issue Resolution
-Once all existing MRs are healthy, the bot looks for new issues assigned to it:
-- It clones the repository and creates a dedicated branch.
-- It passes the issue description to AI to implement the feature or fix.
-- It automatically handles forking if it doesn't have direct push access to the repository.
-- It creates a new Merge Request and assigns itself to it for continued maintenance.
-
-### AI Engine Support
-
-The bot supports multiple AI backends via the `Engine` configuration:
-
-| Engine | CLI | Authentication |
-|--------|-----|----------------|
-| `Claude` | `claude --dangerously-skip-permissions --print` | API key |
-| `Copilot` | `copilot --yolo --no-ask-user --silent` (task on stdin) | Custom provider API key (BYOK) |
-| `Codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | ChatGPT device login persisted under `CODEX_HOME` |
-
-When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
-
-When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration. `ReasoningEffort` optionally passes an explicit `model_reasoning_effort` override to every Codex invocation.
-
-For `Copilot`, use a virtual model on your OpenAI-compatible gateway. `ApiEndpoint`, `ApiKey`, and `Model` override `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, and `COPILOT_MODEL` for the child process when set. Otherwise the CLI inherits its native environment. Token budgets and wire protocol use native Copilot environment variables:
-
-```bash
-export AgentBot__Engine=Copilot
-export AgentBot__ApiEndpoint=https://ollama.aiursoft.com/v1
-export AgentBot__ApiKey="$GATEWAY_API_KEY"
-export AgentBot__Model=aiursoft-codex:latest
-export AgentBot__ReasoningEffort=xhigh
-export COPILOT_PROVIDER_MAX_PROMPT_TOKENS=922000
-export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=128000
-export COPILOT_PROVIDER_WIRE_API=responses
-# Optional: use only the custom provider, without contacting GitHub.
-export COPILOT_OFFLINE=true
-agent-bot
-```
-
-Pass these variables into the container for Docker use. No GitHub subscription login is needed for BYOK. Keep the key in protected runtime configuration. AgentBot does not translate virtual model names to physical models; the gateway owns that mapping. Each task starts a fresh CLI invocation, reads its prompt from a temporary file, and exits without asking for interactive input. `--yolo` grants tool, path, and URL permissions inside the existing container boundary. Copilot maps `ReasoningEffort` to `--effort`, including `xhigh`.
-
-## Configuration
-
-Configuration follows standard .NET conventions: `appsettings.json` → environment variables → CLI args. Environment variables use `__` as separator.
-
-### appsettings.json
-
-```json
-{
-  "Servers": [
-    {
-      "Provider": "GitLab",
-      "EndPoint": "https://gitlab.example.com",
-      "PushEndPoint": "https://{0}@gitlab.example.com",
-      "DisplayName": "Bot",
-      "UserName": "agent-bot",
-      "UserEmail": "bot@aiursoft.com",
-      "ContributionBranch": "users/agent/auto-fix-issue",
-      "Token": "",
-      "OnlyUpdate": false
-    }
-  ],
-  "AgentBot": {
-    "Engine": "Claude",
-    "ReplyLanguage": "En",
-    "Model": "deepseek-v4-pro",
-    "ApiKey": "sk-xxx",
-    "ApiEndpoint": "https://api.deepseek.com/anthropic",
-    "Reviewer": "senior-dev",
-    "PlanningModeEnabled": true
-  }
-}
-```
-
-### Configuration reference
-
-| Key | Env var | Required | Description |
-|-----|---------|----------|-------------|
-| `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default), `Claude`, or `Copilot` |
-| `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
-| `Model` | `AgentBot__Model` | No | Optional model name: `--model` for Claude/Codex, `COPILOT_MODEL` for Copilot |
-| `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex/Copilot | Optional reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
-| `ApiKey` | `AgentBot__ApiKey` | Claude/Copilot | Provider API key; not used by Codex |
-| `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude/Copilot | Anthropic-compatible base URL for Claude; OpenAI-compatible base URL for Copilot |
-| `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
-| `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
-| `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
-| `PlanningModeEnabled` | `AgentBot__PlanningModeEnabled` | No | For Codex/Copilot + GitLab issues, require an approved plan before implementation (default: `true`) |
-| `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea` |
-| `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
-| `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
-| `Servers__N__PushEndPoint` | `Servers__N__PushEndPoint` | Yes | Git push URL template (use `{0}` for username placeholder) |
-| `Servers__N__DisplayName` | `Servers__N__DisplayName` | Yes | Bot's display name for commits |
-| `Servers__N__UserName` | `Servers__N__UserName` | Yes | Bot's username on the git host |
-| `Servers__N__UserEmail` | `Servers__N__UserEmail` | Yes | Bot's email for commits |
-| `Servers__N__ContributionBranch` | `Servers__N__ContributionBranch` | Yes | Branch name for bot's MRs/PRs |
-
-**Server config → Docker env vars:**
-
-```
-AgentBot__WorkspaceFolder=/workspace
-AgentBot__Engine=Claude
-BOT_REPLY_LANGUAGE=zh
-AgentBot__Model=deepseek-v4-pro
-AgentBot__ApiKey=sk-xxx
-AgentBot__Reviewer=senior-dev
-AgentBot__PlanningModeEnabled=true
-Servers__0__Provider=GitLab
-Servers__0__EndPoint=https://gitlab.example.com
-Servers__0__PushEndPoint=https://{0}@gitlab.example.com
-Servers__0__DisplayName=Agent Bot
-Servers__0__UserName=agent-bot
-Servers__0__UserEmail=bot@aiursoft.com
-Servers__0__ContributionBranch=users/agent/auto-fix-issue
-Servers__0__Token=glpat-...
-```
-
-### GitLab issue planning and approval
-
-With Codex or Copilot and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs with full tool permissions because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
-
-Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to the planning worker once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
-
-Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; any value other than `en` or `zh` stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
-
-The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
-
-After approval, AgentBot starts a separate write-enabled implementation workflow using the approved plan as locked scope. Automatically generated pipeline-recovery issues bypass planning to avoid an unattended approval deadlock. Planning mode currently applies to Codex and Copilot on GitLab; other engines and providers retain the existing immediate implementation workflow.
+Automate issue planning, implementation and maintenance of software changes using configurable AI backends and Git hosting providers.
 
 ## Installation
 
-Requirements:
+Install the CLI with the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0):
 
-1. [.NET 10 SDK](http://dot.net/)
-2. The CLI for the selected AI engine
+**Additional requirements**
+
+- The CLI for the selected AI engine
 
 ```bash
 dotnet tool install --global Aiursoft.AgentBot
@@ -170,19 +33,28 @@ npm install --global @openai/codex
 codex login -c cli_auth_credentials_store=file --device-auth
 ```
 
-## Local run
+Update an existing installation:
 
 ```bash
-agent-bot
+dotnet tool update --global Aiursoft.AgentBot
 ```
 
-## Docker Deployment
+Remove the CLI:
+
+```bash
+dotnet tool uninstall --global Aiursoft.AgentBot
+```
+
+<a name="docker-deployment"></a>
+**Docker Deployment**
 
 The container runs silently in the background via cron. No ports exposed.
 
-### Docker Run
+<a name="docker-run"></a>
+**Docker Run**
 
-#### Codex with a ChatGPT account
+<a name="codex-with-a-chatgpt-account"></a>
+**Codex with a ChatGPT account**
 
 Create a persistent volume for the Codex login, then start AgentBot. `AgentBot__Model` and `AgentBot__ReasoningEffort` are optional and may be removed to use Codex's configured defaults.
 
@@ -222,7 +94,8 @@ docker exec --user bot agent-bot \
 
 The device login prints a URL and one-time code. Open the URL in a browser, sign in with the ChatGPT account, and enter the code. Device-code login must be enabled in the ChatGPT account security settings or by the ChatGPT workspace administrator. Codex writes the reusable credentials to `/home/bot/.codex/auth.json` and refreshes them in place. The volume must be protected like a secret.
 
-#### API-key providers
+<a name="api-key-providers"></a>
+**API-key providers**
 
 ```bash
 docker run -d \
@@ -244,7 +117,8 @@ docker run -d \
   hub.aiursoft.com/aiursoft/agentbot
 ```
 
-### Docker Compose
+<a name="docker-compose"></a>
+**Docker Compose**
 
 ```yaml
 version: "3.8"
@@ -276,7 +150,8 @@ volumes:
   agent-bot-logs:
 ```
 
-### Kubernetes (CronJob)
+<a name="kubernetes-cronjob"></a>
+**Kubernetes (CronJob)**
 
 ```yaml
 apiVersion: batch/v1
@@ -349,7 +224,8 @@ stringData:
   gitlab-token: glpat-xxx
 ```
 
-### Docker Swarm
+<a name="docker-swarm"></a>
+**Docker Swarm**
 
 ```bash
 docker service create \
@@ -372,15 +248,240 @@ docker service create \
   hub.aiursoft.com/aiursoft/agentbot
 ```
 
-## Run in Microsoft Visual Studio
+## Usage
 
-1. Open the `.sln` file in the project path.
-2. Press `F5`.
+Configure the server credentials and selected AI engine in [Configuration](#configuration), then run:
+
+```bash
+agent-bot
+```
+
+<a name="how-it-works"></a>
+### How it works
+
+Agent Bot is designed to autonomously manage the entire lifecycle of software development tasks on GitLab/GitHub. It follows a strictly prioritized workflow to ensure existing work is maintained before starting new tasks.
+
+<a name="workflow-priorities"></a>
+**Workflow Priorities**
+
+The bot operates in two main phases:
+
+<a name="phase-1-merge-request-maintenance-highest-priority"></a>
+**Phase 1: Merge Request Maintenance (Highest Priority)**
+Before looking for new work, the bot ensures its existing contributions are healthy. It scans for Merge Requests assigned to it or created by it that need attention:
+- **Conflict Resolution**: If an MR has merge conflicts, the bot merges the target branch and invokes AI to resolve the conflicts.
+- **Addressing Reviews**: If a human reviewer provides feedback, the bot reads the feedback and asks AI to implement the requested changes.
+- **Fixing Pipelines**: If the CI/CD pipeline fails, the bot automatically downloads the failure logs and asks AI to fix the root cause.
+
+GitLab MR automation is bounded to **two reviews and two automatic repair attempts per MR**. Attempts are recorded before AI starts and survive restarts, new commits and force-pushes; failed or no-op attempts count too. At the limit, AgentBot posts one handoff notice and stops automatically retrying. Explicit new human implementation requests remain separately authorized work.
+
+Reviews focus on concrete major regressions within the original objective. Minor suggestions do not block merging; when no major blockers remain, AgentBot recommends merging once CI and existing approvals pass. Reaching the limit does not approve unresolved defects or bypass merge checks. AgentBot does not perform the final merge. The budget uses GitLab comments under the existing single-writer deployment; it is not a distributed lock for concurrent bot replicas.
+
+<a name="phase-2-issue-resolution"></a>
+**Phase 2: Issue Resolution**
+Once all existing MRs are healthy, the bot looks for new issues assigned to it:
+- It clones the repository and creates a dedicated branch.
+- It passes the issue description to AI to implement the feature or fix.
+- It automatically handles forking if it doesn't have direct push access to the repository.
+- It creates a new Merge Request and assigns itself to it for continued maintenance.
+
+<a name="ai-engine-support"></a>
+**AI Engine Support**
+
+The bot supports multiple AI backends via the `Engine` configuration:
+
+| Engine | CLI | Authentication |
+|--------|-----|----------------|
+| `Claude` | `claude --dangerously-skip-permissions --print` | API key |
+| `Copilot` | `copilot --yolo --no-ask-user --silent` (task on stdin) | Custom provider API key (BYOK) |
+| `Codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | ChatGPT device login persisted under `CODEX_HOME` |
+
+When `Engine` is `Claude`, you can point it to any Anthropic-compatible API (DeepSeek, Ollama, etc.) via `ApiEndpoint`.
+
+When `Engine` is `Codex`, no OpenAI API key is required. Log in once with a ChatGPT account inside the container and persist `/home/bot/.codex`. `Model` is optional: set it to pass `--model` to Codex, or omit it to use the model selected by Codex and the account configuration. `ReasoningEffort` optionally passes an explicit `model_reasoning_effort` override to every Codex invocation.
+
+For `Copilot`, use a virtual model on your OpenAI-compatible gateway. `ApiEndpoint`, `ApiKey`, and `Model` override `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, and `COPILOT_MODEL` for the child process when set. Otherwise the CLI inherits its native environment. Token budgets and wire protocol use native Copilot environment variables:
+
+```bash
+export AgentBot__Engine=Copilot
+export AgentBot__ApiEndpoint=https://ollama.aiursoft.com/v1
+export AgentBot__ApiKey="$GATEWAY_API_KEY"
+export AgentBot__Model=aiursoft-codex:latest
+export AgentBot__ReasoningEffort=xhigh
+export COPILOT_PROVIDER_MAX_PROMPT_TOKENS=922000
+export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=128000
+export COPILOT_PROVIDER_WIRE_API=responses
+# Optional: use only the custom provider, without contacting GitHub.
+export COPILOT_OFFLINE=true
+agent-bot
+```
+
+Pass these variables into the container for Docker use. No GitHub subscription login is needed for BYOK. Keep the key in protected runtime configuration. AgentBot does not translate virtual model names to physical models; the gateway owns that mapping. Each task starts a fresh CLI invocation, reads its prompt from a temporary file, and exits without asking for interactive input. `--yolo` grants tool, path, and URL permissions inside the existing container boundary. Copilot maps `ReasoningEffort` to `--effort`, including `xhigh`.
+
+<a name="gitlab-issue-planning-and-approval"></a>
+### GitLab issue planning and approval
+
+With Codex or Copilot and `PlanningModeEnabled=true`, normal GitLab issues begin in planning mode. AgentBot posts a versioned plan and discusses it in issue comments. The planning worker can inspect the full checkout and Git history. It runs with full tool permissions because AgentBot relies on the outer Docker container as its process-isolation boundary. `PLANNING_ONLY` is a behavioral prompt constraint: the worker is instructed not to edit, commit, push, or open a merge request before approval, but the operating system does not enforce a read-only checkout.
+
+Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to the planning worker once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
+
+Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; any value other than `en` or `zh` stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
+
+The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
+
+After approval, AgentBot starts a separate write-enabled implementation workflow using the approved plan as locked scope. Automatically generated pipeline-recovery issues bypass planning to avoid an unattended approval deadlock. Planning mode currently applies to Codex and Copilot on GitLab; other engines and providers retain the existing immediate implementation workflow.
+
+## Configuration
+
+Configuration follows standard .NET conventions: `appsettings.json` → environment variables → CLI args. Environment variables use `__` as separator.
+
+<a name="appsettingsjson"></a>
+**appsettings.json**
+
+```json
+{
+  "Servers": [
+    {
+      "Provider": "GitLab",
+      "EndPoint": "https://gitlab.example.com",
+      "PushEndPoint": "https://{0}@gitlab.example.com",
+      "DisplayName": "Bot",
+      "UserName": "agent-bot",
+      "UserEmail": "bot@aiursoft.com",
+      "ContributionBranch": "users/agent/auto-fix-issue",
+      "Token": "",
+      "OnlyUpdate": false
+    }
+  ],
+  "AgentBot": {
+    "Engine": "Claude",
+    "ReplyLanguage": "En",
+    "Model": "deepseek-v4-pro",
+    "ApiKey": "sk-xxx",
+    "ApiEndpoint": "https://api.deepseek.com/anthropic",
+    "Reviewer": "senior-dev",
+    "PlanningModeEnabled": true
+  }
+}
+```
+
+<a name="configuration-reference"></a>
+**Configuration reference**
+
+| Key | Env var | Required | Description |
+|-----|---------|----------|-------------|
+| `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default), `Claude`, or `Copilot` |
+| `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
+| `Model` | `AgentBot__Model` | No | Optional model name: `--model` for Claude/Codex, `COPILOT_MODEL` for Copilot |
+| `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex/Copilot | Optional reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
+| `ApiKey` | `AgentBot__ApiKey` | Claude/Copilot | Provider API key; not used by Codex |
+| `ApiEndpoint` | `AgentBot__ApiEndpoint` | Claude/Copilot | Anthropic-compatible base URL for Claude; OpenAI-compatible base URL for Copilot |
+| `WorkspaceFolder` | `AgentBot__WorkspaceFolder` | No | Temp directory for cloned repos (default: OS temp) |
+| `AiTimeout` | `AgentBot__AiTimeout` | No | CLI timeout (default: `00:35:00`) |
+| `Reviewer` | `AgentBot__Reviewer` | No | GitLab username to auto-assign as reviewer on new MRs (GitLab only) |
+| `PlanningModeEnabled` | `AgentBot__PlanningModeEnabled` | No | For Codex/Copilot + GitLab issues, require an approved plan before implementation (default: `true`) |
+| `Servers__N__Provider` | `Servers__N__Provider` | Yes | Git host: `GitLab`, `GitHub`, `Gitea` |
+| `Servers__N__Token` | `Servers__N__Token` | Yes | Personal access token for the git host |
+| `Servers__N__EndPoint` | `Servers__N__EndPoint` | Yes | API endpoint URL |
+| `Servers__N__PushEndPoint` | `Servers__N__PushEndPoint` | Yes | Git push URL template (use `{0}` for username placeholder) |
+| `Servers__N__DisplayName` | `Servers__N__DisplayName` | Yes | Bot's display name for commits |
+| `Servers__N__UserName` | `Servers__N__UserName` | Yes | Bot's username on the git host |
+| `Servers__N__UserEmail` | `Servers__N__UserEmail` | Yes | Bot's email for commits |
+| `Servers__N__ContributionBranch` | `Servers__N__ContributionBranch` | Yes | Branch name for bot's MRs/PRs |
+
+**Server config → Docker env vars:**
+
+```
+AgentBot__WorkspaceFolder=/workspace
+AgentBot__Engine=Claude
+BOT_REPLY_LANGUAGE=zh
+AgentBot__Model=deepseek-v4-pro
+AgentBot__ApiKey=sk-xxx
+AgentBot__Reviewer=senior-dev
+AgentBot__PlanningModeEnabled=true
+Servers__0__Provider=GitLab
+Servers__0__EndPoint=https://gitlab.example.com
+Servers__0__PushEndPoint=https://{0}@gitlab.example.com
+Servers__0__DisplayName=Agent Bot
+Servers__0__UserName=agent-bot
+Servers__0__UserEmail=bot@aiursoft.com
+Servers__0__ContributionBranch=users/agent/auto-fix-issue
+Servers__0__Token=glpat-...
+```
+
+**Source defaults**
+
+The configuration above is a provider example. The checked-in application defaults are:
+
+```json
+{
+  "Servers": [
+    {
+      "Provider": "GitLab",
+      "EndPoint": "https://gitlab.aiursoft.com",
+      "PushEndPoint": "https://{0}@gitlab.aiursoft.com",
+      "DisplayName": "Agent Bot",
+      "UserName": "agent-bot",
+      "UserEmail": "agent@aiursoft.com",
+      "ContributionBranch": "users/agent/auto-fix-issue",
+      "Token": "",
+      "OnlyUpdate": false
+    }
+  ],
+  "AgentBot": {
+    "WorkspaceFolder": "/workspace",
+    "AiTimeout": "00:20:00",
+    "ForkWaitDelayMs": 5000,
+    "Engine": "Codex",
+    "ReplyLanguage": "En",
+    "Model": "",
+    "ReasoningEffort": null,
+    "PlanningModeEnabled": true,
+    "ApiKey": "",
+    "ApiEndpoint": ""
+  }
+}
+```
+
+The class default for `AiTimeout` is 35 minutes; the checked-in appsettings file overrides it to 20 minutes. Environment variables and command-line arguments can override these settings.
+
+## Development
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+
+From the repository root, restore and build:
+
+```bash
+dotnet restore Aiursoft.AgentBot.sln
+dotnet build Aiursoft.AgentBot.sln --no-restore
+```
+
+<a name="run-locally"></a>
+<a name="local-run"></a>
+Run the tool from source, with the prerequisites and configuration above:
+
+```bash
+dotnet run --project src/Aiursoft.AgentBot/Aiursoft.AgentBot.csproj
+```
+
+<a name="run-in-microsoft-visual-studio"></a>
+In Microsoft Visual Studio, open `Aiursoft.AgentBot.sln`, select `Aiursoft.AgentBot` as the startup project and press `F5`. Configure the arguments and environment for the task you want to run.
+
+Run the existing tests:
+
+```bash
+dotnet test Aiursoft.AgentBot.sln --no-restore
+```
+
 
 ## How to contribute
 
 There are many ways to contribute to the project: logging bugs, submitting pull requests, reporting issues, and creating suggestions.
 
-Even if you with push rights on the repository, you should create a personal fork and create feature branches there when you need them. This keeps the main repository clean and your workflow cruft out of sight.
+Even if you have push rights on the repository, you should create a personal fork and create feature branches there when you need them. This keeps the main repository clean and your workflow cruft out of sight.
 
 We're also interested in your feedback on the future of this project. You can submit a suggestion or feature request through the issue tracker. To make this process more effective, we're asking that these include more information to help define them more clearly.
+
+## License
+
+Licensed under the [MIT License](https://github.com/AiursoftWeb/agentbot/blob/master/LICENSE).
