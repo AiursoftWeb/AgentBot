@@ -311,4 +311,96 @@ public class IssueProcessorTests
         Assert.AreEqual(0, versionControl.ForkRepoCalls.Count);
         Assert.AreEqual(0, versionControl.CreatePullRequestCalls.Count);
     }
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RepeatedIssueAttempts_StopAcrossProcessorRestarts(bool aiFails)
+    {
+        var notes = new List<GitLabNote>();
+        var results = await RunImplementationScansAsync(notes, 5, aiFails: aiFails);
+        Assert.AreEqual(2, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
+        Assert.IsFalse(results[0].Success);
+        Assert.IsFalse(results[1].Success);
+        StringAssert.Contains(results[2].Message, "limit reached");
+        Assert.AreEqual(2, notes.Count(note => note.Body.Contains("<!-- agentbot:issue-implementation:v1:", StringComparison.Ordinal)));
+        Assert.AreEqual(0, _versionControlMock.CreatePullRequestCalls.Count);
+    }
+
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task UnavailableIssueHistoryOrAttemptMarker_PreventsAi(bool historyFails, bool markerFails)
+    {
+        var results = await RunImplementationScansAsync([], 1, historyFails: historyFails, markerFails: markerFails);
+        Assert.IsFalse(results[0].Success);
+        Assert.AreEqual(0, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
+    }
+
+    [TestMethod]
+    public async Task OtherUsersCannotExhaustIssueBudget_AndActualChangesProduceMr()
+    {
+        var notes = new List<GitLabNote>
+        {
+            new() { Author = new GitLabUser { Username = "human" }, Body = "<!-- agentbot:issue-implementation:v1:round-2 -->" },
+            new() { Author = new GitLabUser { Username = "bot-user" }, System = true, Body = "<!-- agentbot:issue-implementation:v1:round-2 -->" }
+        };
+        var results = await RunImplementationScansAsync(notes, 1, hasChanges: true);
+        Assert.IsTrue(results[0].Success);
+        Assert.AreEqual(1, _aiCliServiceMock.InvokeAiCliAsyncCalls.Count);
+        Assert.AreEqual(1, _versionControlMock.CreatePullRequestCalls.Count);
+    }
+
+    private async Task<List<ProcessResult>> RunImplementationScansAsync(
+        List<GitLabNote> notes, int scans, bool aiFails = false, bool historyFails = false,
+        bool markerFails = false, bool hasChanges = false)
+    {
+        var server = new Server { Provider = "GitLab", UserName = "bot-user", Token = "token", EndPoint = "https://gitlab.example.com" };
+        var issue = new Issue { Id = 7, Iid = 7, ProjectId = 101, Title = "Fix failed build", Description = "Compiler error" };
+        _versionControlMock.GetRepositoryHandler = (_, _, _, _) => Task.FromResult(new Repository
+        {
+            Name = "repo", DefaultBranch = "main", CloneUrl = "https://gitlab.example.com/owner/repo.git",
+            Owner = new User { Login = "owner" }
+        });
+        _versionControlMock.RepoExistsHandler = (_, _, _, _) => Task.FromResult(true);
+        _versionControlMock.GetPushPathHandler = (_, _) => "https://gitlab.example.com/bot/repo.git";
+        _versionControlMock.GetPullRequestsHandler = (_, _, _, _, _) => Task.FromResult<IEnumerable<PullRequest>>([]);
+        _workspaceManagerMock.PendingCommitHandler = _ => Task.FromResult(hasChanges);
+        _workspaceManagerMock.CommitToBranchHandler = (_, _, _) => Task.FromResult(true);
+        _aiCliServiceMock.InvokeAiCliAsyncHandler = (_, _, _) => Task.FromResult((!aiFails, "I will inspect the project", ""));
+        var handler = new FakeHttpMessageHandler(async request =>
+        {
+            var url = request.RequestUri!.AbsolutePath;
+            if (url.EndsWith("/notes", StringComparison.Ordinal))
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    if (markerFails) return new HttpResponseMessage(HttpStatusCode.Forbidden);
+                    using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+                    notes.Add(new GitLabNote { Id = notes.Count + 1, Author = new GitLabUser { Username = server.UserName }, Body = body.RootElement.GetProperty("body").GetString()! });
+                    return new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{}") };
+                }
+                return new HttpResponseMessage(historyFails ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+                { Content = new StringContent(JsonSerializer.Serialize(notes)) };
+            }
+            if (url.EndsWith("/issues/7", StringComparison.Ordinal))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"state\":\"opened\"}") };
+            if (url.EndsWith("/user", StringComparison.Ordinal))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":1,\"username\":\"bot-user\"}") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") };
+        });
+        var client = new HttpClient(handler);
+        var wrapper = new HttpWrapper(NullLogger<HttpWrapper>.Instance, client);
+        var results = new List<ProcessResult>();
+        for (var scan = 0; scan < scans; scan++)
+        {
+            var engine = new BotWorkflowEngine(_versionControlMock, _workspaceManagerMock, _aiCliServiceMock,
+                _commandServiceMock, _options, _workflowLoggerMock);
+            var planning = new IssuePlanningService(_workspaceManagerMock, _aiCliServiceMock, wrapper, client,
+                _options, NullLogger<IssuePlanningService>.Instance);
+            var processor = new IssueProcessor(_versionControlMock, engine, planning, wrapper, _options, _loggerMock);
+            results.Add(await processor.ProcessAsync(issue, server));
+        }
+        return results;
+    }
+
 }
