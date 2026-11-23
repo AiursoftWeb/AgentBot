@@ -10,7 +10,33 @@ public enum AiEngine
 public enum ReplyLanguage
 {
     En,
+    EnGb,
     Zh,
+    ZhTw,
+    ZhHk,
+    Ja,
+    Ko,
+    Vi,
+    Th,
+    De,
+    Fr,
+    Es,
+    Ru,
+    It,
+    Pt,
+    PtBr,
+    Ar,
+    Nl,
+    Sv,
+    Pl,
+    Tr,
+    Ro,
+    Da,
+    Uk,
+    Id,
+    Fi,
+    Hi,
+    El,
     Hr
 }
 
@@ -50,11 +76,37 @@ public class AgentBotOptions
     {
         return configuredLanguage?.Trim().ToLowerInvariant() switch
         {
-            null or "" or "en" => ReplyLanguage.En,
-            "zh" => ReplyLanguage.Zh,
+            null or "" or "en" or "en-us" => ReplyLanguage.En,
+            "en-gb" => ReplyLanguage.EnGb,
+            "zh" or "zh-cn" or "zh-hans" => ReplyLanguage.Zh,
+            "zh-tw" or "zh-hant" => ReplyLanguage.ZhTw,
+            "zh-hk" => ReplyLanguage.ZhHk,
+            "ja" or "ja-jp" => ReplyLanguage.Ja,
+            "ko" or "ko-kr" => ReplyLanguage.Ko,
+            "vi" or "vi-vn" => ReplyLanguage.Vi,
+            "th" or "th-th" => ReplyLanguage.Th,
+            "de" or "de-de" => ReplyLanguage.De,
+            "fr" or "fr-fr" => ReplyLanguage.Fr,
+            "es" or "es-es" => ReplyLanguage.Es,
+            "ru" or "ru-ru" => ReplyLanguage.Ru,
+            "it" or "it-it" => ReplyLanguage.It,
+            "pt" or "pt-pt" => ReplyLanguage.Pt,
+            "pt-br" => ReplyLanguage.PtBr,
+            "ar" or "ar-sa" => ReplyLanguage.Ar,
+            "nl" or "nl-nl" => ReplyLanguage.Nl,
+            "sv" or "sv-se" => ReplyLanguage.Sv,
+            "pl" or "pl-pl" => ReplyLanguage.Pl,
+            "tr" or "tr-tr" => ReplyLanguage.Tr,
+            "ro" or "ro-ro" => ReplyLanguage.Ro,
+            "da" or "da-dk" => ReplyLanguage.Da,
+            "uk" or "uk-ua" => ReplyLanguage.Uk,
+            "id" or "id-id" => ReplyLanguage.Id,
+            "fi" or "fi-fi" => ReplyLanguage.Fi,
+            "hi" or "hi-in" => ReplyLanguage.Hi,
+            "el" or "el-gr" => ReplyLanguage.El,
             "hr" or "hr-hr" => ReplyLanguage.Hr,
             _ => throw new InvalidOperationException(
-                $"BOT_REPLY_LANGUAGE must be 'en', 'zh', or 'hr', but was '{configuredLanguage}'.")
+                $"BOT_REPLY_LANGUAGE '{configuredLanguage}' is not supported. Supported values include standard codes for 29 languages (e.g. en, zh, hr, ja, ko, de, fr, es, etc.).")
         };
     }
 
