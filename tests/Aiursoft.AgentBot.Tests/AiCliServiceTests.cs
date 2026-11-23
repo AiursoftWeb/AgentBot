@@ -64,7 +64,7 @@ public class AiCliServiceTests
         StringAssert.Contains(
             arg,
             "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral --color never -c cli_auth_credentials_store=file");
-        StringAssert.Contains(arg, " - < '/tmp/agentbot-");
+        StringAssert.Contains(arg, $" - < '{Path.GetTempPath()}agentbot-");
         Assert.IsFalse(arg.Contains(" --model ", StringComparison.Ordinal));
         Assert.IsFalse(arg.Contains("model_reasoning_effort", StringComparison.Ordinal));
         Assert.IsNull(environmentVariables);
@@ -87,7 +87,7 @@ public class AiCliServiceTests
     {
         var (arg, environmentVariables) = await InvokeCodexAsync(model: "custom-codex-model");
 
-        StringAssert.Contains(arg, " --model custom-codex-model - < '/tmp/agentbot-");
+        StringAssert.Contains(arg, $" --model custom-codex-model - < '{Path.GetTempPath()}agentbot-");
         Assert.IsNull(environmentVariables);
     }
 
