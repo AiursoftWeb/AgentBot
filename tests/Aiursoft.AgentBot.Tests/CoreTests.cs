@@ -35,9 +35,19 @@ public class CoreTests
     [DataRow(" EN ", ReplyLanguage.En)]
     [DataRow("zh", ReplyLanguage.Zh)]
     [DataRow(" ZH ", ReplyLanguage.Zh)]
+    [DataRow("hr", ReplyLanguage.Hr)]
+    [DataRow(" hr-HR ", ReplyLanguage.Hr)]
     public void ParseReplyLanguage_NormalizesSupportedValues(string? configured, ReplyLanguage expected)
     {
         Assert.AreEqual(expected, AgentBotOptions.ParseReplyLanguage(configured));
+    }
+
+    [TestMethod]
+    public void CroatianPromptKeepsNonProseContentUnchanged()
+    {
+        var prompt = ReplyLanguageText.PromptInstruction(ReplyLanguage.Hr);
+        StringAssert.Contains(prompt, "Croatian (Hrvatski)");
+        StringAssert.Contains(prompt, "Preserve code, identifiers, paths, commands, logs, and quoted text exactly as written.");
     }
 
     [TestMethod]

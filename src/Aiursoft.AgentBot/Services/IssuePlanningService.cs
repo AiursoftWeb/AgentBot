@@ -89,7 +89,8 @@ public partial class IssuePlanningService(
                 ReplyLanguageText.Select(
                     _options.ReplyLanguage,
                     "The current plan was not approved. Only the issue author or configured reviewer can approve it with an explicit, unconditional instruction to begin implementation.",
-                    "当前计划尚未获批。只有 Issue 作者或已配置的 Reviewer 才能通过明确且无条件的实施指令批准计划。")));
+                    "当前计划尚未获批。只有 Issue 作者或已配置的 Reviewer 才能通过明确且无条件的实施指令批准计划。",
+                    "Trenutačni plan nije odobren. Samo autor prijave ili dodijeljeni pregledavatelj može ga odobriti jasnom i bezuvjetnom uputom za početak provedbe.")));
             return IssuePlanningOutcome.Waiting("Approval candidate was rejected; waiting for authorized feedback");
         }
 
@@ -323,12 +324,13 @@ public partial class IssuePlanningService(
         """;
 
     private string BuildApprovalComment(int version, GitLabNote approvalNote) => $"""
-        ## {ReplyLanguageText.Select(_options.ReplyLanguage, "Agent Plan", "Agent 计划")} v{version} {ReplyLanguageText.Select(_options.ReplyLanguage, "approved", "已批准")}
+        ## {ReplyLanguageText.Select(_options.ReplyLanguage, "Agent Plan", "Agent 计划", "Plan agenta")} v{version} {ReplyLanguageText.Select(_options.ReplyLanguage, "approved", "已批准", "odobren")}
 
         {ReplyLanguageText.Select(
             _options.ReplyLanguage,
             $"Approval was recognized from @{approvalNote.Author.Username}'s comment (note {approvalNote.Id}). A separate implementation worker will now execute the approved plan.",
-            $"已识别 @{approvalNote.Author.Username} 在评论（note {approvalNote.Id}）中的批准指令。独立的实施 Worker 现在将执行已批准的计划。")}
+            $"已识别 @{approvalNote.Author.Username} 在评论（note {approvalNote.Id}）中的批准指令。独立的实施 Worker 现在将执行已批准的计划。",
+            $"Odobrenje je prepoznato u komentaru korisnika @{approvalNote.Author.Username} (komentar {approvalNote.Id}). Zaseban proces sada će provesti odobreni plan.")}
 
         <!-- agentbot:approved:plan-v{version}:note-{approvalNote.Id} -->
         """;
@@ -339,16 +341,16 @@ public partial class IssuePlanningService(
         ReplyLanguage replyLanguage) => $"""
         {response.ResponseMarkdown.Trim()}
 
-        ## {ReplyLanguageText.Select(replyLanguage, "Agent Plan", "Agent 计划")} v{version}
+        ## {ReplyLanguageText.Select(replyLanguage, "Agent Plan", "Agent 计划", "Plan agenta")} v{version}
 
         <!-- agentbot:plan-content:start -->
         {response.PlanMarkdown!.Trim()}
         <!-- agentbot:plan-content:end -->
 
-        **{ReplyLanguageText.Select(replyLanguage, "Current state:", "当前状态：")}** {ReplyLanguageText.Select(replyLanguage, "waiting for approval.", "等待批准。")}
+        **{ReplyLanguageText.Select(replyLanguage, "Current state:", "当前状态：", "Trenutačno stanje:")}** {ReplyLanguageText.Select(replyLanguage, "waiting for approval.", "等待批准。", "čeka odobrenje.")}
 
-        {ReplyLanguageText.Select(replyLanguage, "To approve naturally, reply with an unambiguous instruction such as:", "如需批准，请回复明确无歧义的指令，例如：")}
-        `{ReplyLanguageText.Select(replyLanguage, "Approve the current plan and start implementation.", "批准当前计划，开始开发。")}`
+        {ReplyLanguageText.Select(replyLanguage, "To approve naturally, reply with an unambiguous instruction such as:", "如需批准，请回复明确无歧义的指令，例如：", "Za odobrenje odgovorite jasnom uputom, primjerice:")}
+        `{ReplyLanguageText.Select(replyLanguage, "Approve the current plan and start implementation.", "批准当前计划，开始开发。", "Odobravam trenutačni plan. Započnite provedbu.")}`
 
         <!-- agentbot:plan:v{version} -->
         """;

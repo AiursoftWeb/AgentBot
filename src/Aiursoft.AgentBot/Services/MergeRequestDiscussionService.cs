@@ -111,7 +111,8 @@ public partial class MergeRequestDiscussionService(
             responseMarkdown = ReplyLanguageText.Select(
                 _options.ReplyLanguage,
                 "I understand the requested change. In this review-only role I won't modify the source branch; the merge request author should decide and implement it.",
-                "我理解这项修改请求。当前 Bot 仅承担 Review 角色，不会修改源分支；请由 Merge Request 作者决定并实施。");
+                "我理解这项修改请求。当前 Bot 仅承担 Review 角色，不会修改源分支；请由 Merge Request 作者决定并实施。",
+                "Razumijem traženu promjenu. U ulozi pregledavatelja prepuštam odluku i provedbu autoru zahtjeva za spajanje.");
         }
 
         var discussionIds = newHumanNotes
