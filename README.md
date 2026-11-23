@@ -325,7 +325,7 @@ With Codex or Copilot and `PlanningModeEnabled=true`, normal GitLab issues begin
 
 Planning discussion is conversational. Questions, objections, and unresolved choices receive a direct reply without republishing or incrementing the current plan. AgentBot publishes a complete new plan version only after a material product or scope decision is settled. Hidden discussion markers remember which human notes have already been answered, preventing repeated replies across polling cycles and container restarts. The current plan is supplied to the planning worker once together with only the discussion that followed it, so superseded plans do not accumulate in the prompt.
 
-Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; any value other than `en` or `zh` stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
+Set `BOT_REPLY_LANGUAGE=zh` to make generated plans, Issue replies, merge request descriptions, and code-review comments use Simplified Chinese, or `BOT_REPLY_LANGUAGE=hr` to use Croatian. The default is `en`. Values are case-insensitive and may contain surrounding whitespace; an unsupported value stops startup with a clear configuration error. This preference affects natural-language output only: code, identifiers, paths, commands, logs, and quoted text remain unchanged. `AgentBot:ReplyLanguage` may be used in `appsettings.json`, while the top-level `BOT_REPLY_LANGUAGE` environment variable takes precedence.
 
 The issue author or the configured `Reviewer` can approve the current plan with an unambiguous natural-language instruction such as `批准当前计划，开始开发。` or `Approve the current plan and start implementation.` Quoted examples, conditional approval, comments from other users, and AgentBot's own comments do not approve a plan. Plan and approval state is stored as hidden markers in GitLab comments, so it survives restarts.
 
@@ -371,7 +371,7 @@ Configuration follows standard .NET conventions: `appsettings.json` → environm
 | Key | Env var | Required | Description |
 |-----|---------|----------|-------------|
 | `Engine` | `AgentBot__Engine` | No | AI backend: `Codex` (default), `Claude`, or `Copilot` |
-| `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default) or `zh` |
+| `ReplyLanguage` | `BOT_REPLY_LANGUAGE` | No | Preferred language for user-facing Issue/MR content: `en` (default), `zh`, or `hr` |
 | `Model` | `AgentBot__Model` | No | Optional model name: `--model` for Claude/Codex, `COPILOT_MODEL` for Copilot |
 | `ReasoningEffort` | `AgentBot__ReasoningEffort` | Codex/Copilot | Optional reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh` |
 | `ApiKey` | `AgentBot__ApiKey` | Claude/Copilot | Provider API key; not used by Codex |

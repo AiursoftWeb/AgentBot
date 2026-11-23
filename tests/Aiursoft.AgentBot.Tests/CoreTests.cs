@@ -35,6 +35,8 @@ public class CoreTests
     [DataRow(" EN ", ReplyLanguage.En)]
     [DataRow("zh", ReplyLanguage.Zh)]
     [DataRow(" ZH ", ReplyLanguage.Zh)]
+    [DataRow("hr", ReplyLanguage.Hr)]
+    [DataRow(" hr-HR ", ReplyLanguage.Hr)]
     public void ParseReplyLanguage_NormalizesSupportedValues(string? configured, ReplyLanguage expected)
     {
         Assert.AreEqual(expected, AgentBotOptions.ParseReplyLanguage(configured));

@@ -10,7 +10,8 @@ public enum AiEngine
 public enum ReplyLanguage
 {
     En,
-    Zh
+    Zh,
+    Hr
 }
 
 public enum CodexReasoningEffort
@@ -51,8 +52,9 @@ public class AgentBotOptions
         {
             null or "" or "en" => ReplyLanguage.En,
             "zh" => ReplyLanguage.Zh,
+            "hr" or "hr-hr" => ReplyLanguage.Hr,
             _ => throw new InvalidOperationException(
-                $"BOT_REPLY_LANGUAGE must be either 'en' or 'zh', but was '{configuredLanguage}'.")
+                $"BOT_REPLY_LANGUAGE must be 'en', 'zh', or 'hr', but was '{configuredLanguage}'.")
         };
     }
 
