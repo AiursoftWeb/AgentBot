@@ -43,6 +43,14 @@ public class CoreTests
     }
 
     [TestMethod]
+    public void CroatianPromptKeepsNonProseContentUnchanged()
+    {
+        var prompt = ReplyLanguageText.PromptInstruction(ReplyLanguage.Hr);
+        StringAssert.Contains(prompt, "Croatian (Hrvatski)");
+        StringAssert.Contains(prompt, "Preserve code, identifiers, paths, commands, logs, and quoted text exactly as written.");
+    }
+
+    [TestMethod]
     public void ParseReplyLanguage_RejectsUnsupportedValue()
     {
         var exception = Assert.ThrowsExactly<InvalidOperationException>(
